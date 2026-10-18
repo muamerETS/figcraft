@@ -1,4 +1,4 @@
-//! Design tokens (UI3 light and dark) and fonts.
+//! Design tokens (Paper light and Midnight dark, indigo accent) and fonts.
 
 use std::sync::Arc;
 
@@ -44,8 +44,10 @@ pub struct Tokens {
     pub focus: Color32,
 }
 
-pub const ACCENT: Color32 = Color32::from_rgb(0x0D, 0x99, 0xFF);
-pub const COMPONENT: Color32 = Color32::from_rgb(0x97, 0x47, 0xFF);
+/// Indigo: 5.6:1 with white text on it.
+pub const ACCENT: Color32 = Color32::from_rgb(0x5B, 0x4C, 0xF0);
+/// Fuchsia, far enough from the indigo accent that components never read as selected.
+pub const COMPONENT: Color32 = Color32::from_rgb(0xC0, 0x26, 0xD3);
 /// Handoff status badges (white text on these, in both themes).
 pub const DEV_READY: Color32 = Color32::from_rgb(0x14, 0xAE, 0x5C);
 pub const DEV_CHANGED: Color32 = Color32::from_rgb(0xD9, 0x7A, 0x06);
@@ -57,78 +59,80 @@ impl Tokens {
             dark: false,
             bg: Color32::from_rgb(0xFF, 0xFF, 0xFF),
             panel: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            canvas: Color32::from_rgb(0xF5, 0xF5, 0xF5),
-            border: Color32::from_rgb(0xE6, 0xE6, 0xE6),
-            border_strong: Color32::from_rgb(0xD9, 0xD9, 0xD9),
-            text: Color32::from_rgb(0x1E, 0x1E, 0x1E),
-            // 4.7:1 on fields and hovered rows (#F5F5F5), 4.6:1 on selected rows: WCAG AA.
-            text_secondary: Color32::from_rgb(0x6E, 0x6E, 0x6E),
-            text_tertiary: Color32::from_rgb(0xB3, 0xB3, 0xB3),
-            icon: Color32::from_rgb(0x1E, 0x1E, 0x1E),
-            icon_secondary: Color32::from_rgb(0x75, 0x75, 0x75),
-            hover: Color32::from_rgb(0xF5, 0xF5, 0xF5),
-            pressed: Color32::from_rgb(0xE6, 0xE6, 0xE6),
-            field: Color32::from_rgb(0xF5, 0xF5, 0xF5),
-            field_hover_border: Color32::from_rgb(0xE6, 0xE6, 0xE6),
+            canvas: Color32::from_rgb(0xF0, 0xF1, 0xF4),
+            border: Color32::from_rgb(0xE4, 0xE6, 0xEB),
+            border_strong: Color32::from_rgb(0xD5, 0xD8, 0xDF),
+            text: Color32::from_rgb(0x14, 0x17, 0x1D),
+            // 5.6:1 on fields and hovered rows, 5.2:1 on selected rows: WCAG AA.
+            text_secondary: Color32::from_rgb(0x5B, 0x62, 0x70),
+            text_tertiary: Color32::from_rgb(0xA0, 0xA6, 0xB1),
+            icon: Color32::from_rgb(0x1C, 0x1F, 0x26),
+            icon_secondary: Color32::from_rgb(0x6B, 0x72, 0x80),
+            hover: Color32::from_rgb(0xF3, 0xF4, 0xF7),
+            pressed: Color32::from_rgb(0xE7, 0xE9, 0xEE),
+            field: Color32::from_rgb(0xF3, 0xF4, 0xF7),
+            field_hover_border: Color32::from_rgb(0xE2, 0xE5, 0xEA),
             accent: ACCENT,
-            accent_hover: Color32::from_rgb(0x00, 0x7B, 0xE5),
-            // 5.2:1 on white, 4.6:1 on selected rows: WCAG AA for text.
-            accent_text: Color32::from_rgb(0x00, 0x6B, 0xD1),
-            selected_row: Color32::from_rgb(0xE5, 0xF4, 0xFF),
-            selected_row_child: Color32::from_rgb(0xF2, 0xF9, 0xFF),
+            accent_hover: Color32::from_rgb(0x4A, 0x3B, 0xDB),
+            // 7.3:1 on white, 6.1:1 on selected rows: WCAG AA for text.
+            accent_text: Color32::from_rgb(0x4B, 0x3B, 0xD6),
+            selected_row: Color32::from_rgb(0xEC, 0xEA, 0xFF),
+            selected_row_child: Color32::from_rgb(0xF6, 0xF5, 0xFF),
             component: COMPONENT,
-            component_row: Color32::from_rgb(0xF1, 0xE9, 0xFF),
-            danger: Color32::from_rgb(0xF2, 0x48, 0x22),
-            success: Color32::from_rgb(0x14, 0xAE, 0x5C),
-            warning: Color32::from_rgb(0xFF, 0xCD, 0x29),
-            guide: Color32::from_rgb(0xF2, 0x48, 0x22),
-            tab_bar: Color32::from_rgb(0xE8, 0xE8, 0xE8),
+            component_row: Color32::from_rgb(0xFB, 0xE8, 0xFD),
+            danger: Color32::from_rgb(0xE5, 0x48, 0x4D),
+            success: Color32::from_rgb(0x12, 0xA1, 0x5E),
+            warning: Color32::from_rgb(0xF5, 0xB7, 0x2A),
+            guide: Color32::from_rgb(0xE5, 0x48, 0x4D),
+            tab_bar: Color32::from_rgb(0xE9, 0xEB, 0xEF),
             tab_active: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            shadow: Color32::from_black_alpha(40),
-            menu: Color32::from_rgb(0x1E, 0x1E, 0x1E),
+            shadow: Color32::from_rgba_unmultiplied(0x1B, 0x23, 0x30, 30),
+            menu: Color32::from_rgb(0x16, 0x18, 0x1D),
             menu_text: Color32::from_rgb(0xFF, 0xFF, 0xFF),
             menu_hover: ACCENT,
-            menu_dim: Color32::from_rgb(0x9A, 0x9A, 0x9A),
-            focus: Color32::from_rgb(0x00, 0x6B, 0xD1),
+            menu_dim: Color32::from_rgb(0x9A, 0xA0, 0xAB),
+            focus: Color32::from_rgb(0x4B, 0x3B, 0xD6),
         }
     }
 
     pub fn dark() -> Self {
         Self {
             dark: true,
-            bg: Color32::from_rgb(0x2C, 0x2C, 0x2C),
-            panel: Color32::from_rgb(0x2C, 0x2C, 0x2C),
-            canvas: Color32::from_rgb(0x1E, 0x1E, 0x1E),
-            border: Color32::from_rgb(0x44, 0x44, 0x44),
-            border_strong: Color32::from_rgb(0x55, 0x55, 0x55),
-            text: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            text_secondary: Color32::from_rgb(0xB3, 0xB3, 0xB3),
-            text_tertiary: Color32::from_rgb(0x75, 0x75, 0x75),
-            icon: Color32::from_rgb(0xF5, 0xF5, 0xF5),
-            icon_secondary: Color32::from_rgb(0xB3, 0xB3, 0xB3),
-            hover: Color32::from_rgb(0x38, 0x38, 0x38),
-            pressed: Color32::from_rgb(0x44, 0x44, 0x44),
-            field: Color32::from_rgb(0x38, 0x38, 0x38),
-            field_hover_border: Color32::from_rgb(0x4D, 0x4D, 0x4D),
+            bg: Color32::from_rgb(0x15, 0x18, 0x1E),
+            panel: Color32::from_rgb(0x15, 0x18, 0x1E),
+            canvas: Color32::from_rgb(0x0E, 0x10, 0x14),
+            border: Color32::from_rgb(0x26, 0x2B, 0x35),
+            border_strong: Color32::from_rgb(0x33, 0x39, 0x46),
+            text: Color32::from_rgb(0xEC, 0xEE, 0xF3),
+            // 6.7:1 on fields, 5.9:1 on selected rows: WCAG AA.
+            text_secondary: Color32::from_rgb(0xA3, 0xAA, 0xB8),
+            text_tertiary: Color32::from_rgb(0x6B, 0x72, 0x80),
+            icon: Color32::from_rgb(0xE6, 0xE8, 0xEE),
+            icon_secondary: Color32::from_rgb(0xA3, 0xAA, 0xB8),
+            hover: Color32::from_rgb(0x1F, 0x23, 0x2B),
+            pressed: Color32::from_rgb(0x2A, 0x2F, 0x3A),
+            field: Color32::from_rgb(0x20, 0x24, 0x2D),
+            field_hover_border: Color32::from_rgb(0x34, 0x3A, 0x47),
             accent: ACCENT,
-            accent_hover: Color32::from_rgb(0x3D, 0xAD, 0xFF),
-            accent_text: Color32::from_rgb(0x7C, 0xC4, 0xF8),
-            selected_row: Color32::from_rgb(0x2A, 0x45, 0x5C),
-            selected_row_child: Color32::from_rgb(0x2D, 0x37, 0x41),
-            component: Color32::from_rgb(0xD2, 0x7C, 0xFF),
-            component_row: Color32::from_rgb(0x3E, 0x30, 0x52),
-            danger: Color32::from_rgb(0xF2, 0x48, 0x22),
-            success: Color32::from_rgb(0x14, 0xAE, 0x5C),
-            warning: Color32::from_rgb(0xFF, 0xCD, 0x29),
-            guide: Color32::from_rgb(0xF2, 0x48, 0x22),
-            tab_bar: Color32::from_rgb(0x1E, 0x1E, 0x1E),
-            tab_active: Color32::from_rgb(0x2C, 0x2C, 0x2C),
-            shadow: Color32::from_black_alpha(90),
-            menu: Color32::from_rgb(0x1E, 0x1E, 0x1E),
+            accent_hover: Color32::from_rgb(0x6E, 0x61, 0xFF),
+            // 8.1:1 on the panels, 6.3:1 on selected rows.
+            accent_text: Color32::from_rgb(0xAD, 0xA5, 0xFF),
+            selected_row: Color32::from_rgb(0x27, 0x2A, 0x4D),
+            selected_row_child: Color32::from_rgb(0x1D, 0x20, 0x33),
+            component: Color32::from_rgb(0xE8, 0x79, 0xF9),
+            component_row: Color32::from_rgb(0x3A, 0x22, 0x40),
+            danger: Color32::from_rgb(0xF0, 0x5D, 0x62),
+            success: Color32::from_rgb(0x2E, 0xC2, 0x7E),
+            warning: Color32::from_rgb(0xF5, 0xB7, 0x2A),
+            guide: Color32::from_rgb(0xF0, 0x5D, 0x62),
+            tab_bar: Color32::from_rgb(0x0E, 0x10, 0x14),
+            tab_active: Color32::from_rgb(0x15, 0x18, 0x1E),
+            shadow: Color32::from_black_alpha(110),
+            menu: Color32::from_rgb(0x0E, 0x10, 0x14),
             menu_text: Color32::from_rgb(0xFF, 0xFF, 0xFF),
             menu_hover: ACCENT,
-            menu_dim: Color32::from_rgb(0x9A, 0x9A, 0x9A),
-            focus: ACCENT,
+            menu_dim: Color32::from_rgb(0x9A, 0xA0, 0xAB),
+            focus: Color32::from_rgb(0xAD, 0xA5, 0xFF),
         }
     }
 
@@ -183,13 +187,13 @@ fn visuals(t: Tokens) -> Visuals {
     v.faint_bg_color = t.hover;
     v.override_text_color = Some(t.text);
     v.window_stroke = Stroke::new(1.0, t.border);
-    v.window_corner_radius = egui::CornerRadius::same(13);
-    v.menu_corner_radius = egui::CornerRadius::same(13);
+    v.window_corner_radius = egui::CornerRadius::same(14);
+    v.menu_corner_radius = egui::CornerRadius::same(14);
     v.selection.bg_fill = t.accent.gamma_multiply(0.3);
     v.selection.stroke = Stroke::new(1.0, t.accent);
     v.hyperlink_color = t.accent_text;
     for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open, &mut v.widgets.noninteractive] {
-        w.corner_radius = egui::CornerRadius::same(5);
+        w.corner_radius = egui::CornerRadius::same(6);
         w.fg_stroke = Stroke::new(1.0, t.text);
     }
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, t.border);
@@ -203,8 +207,8 @@ fn visuals(t: Tokens) -> Visuals {
     v.widgets.active.bg_fill = t.pressed;
     v.widgets.active.weak_bg_fill = t.pressed;
     v.widgets.active.bg_stroke = Stroke::new(1.0, t.accent);
-    v.popup_shadow = egui::Shadow { offset: [0, 4], blur: 16, spread: 0, color: t.shadow };
-    v.window_shadow = egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: t.shadow };
+    v.popup_shadow = egui::Shadow { offset: [0, 6], blur: 20, spread: 0, color: t.shadow };
+    v.window_shadow = egui::Shadow { offset: [0, 12], blur: 32, spread: 0, color: t.shadow };
     v.text_cursor.stroke = Stroke::new(1.0, t.accent);
     v
 }
@@ -369,6 +373,35 @@ pub fn doc_c32(ctx: &Context, c: figcraft_color::Color) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let c = |x: Color32| figcraft_color::Color::from_rgba8(x.r(), x.g(), x.b(), 255);
+        c(a).contrast(c(b))
+    }
+
+    #[test]
+    fn tokens_meet_wcag_contrast() {
+        for t in [Tokens::light(), Tokens::dark()] {
+            let name = if t.dark { "dark" } else { "light" };
+            for (what, fg, bg, min) in [
+                ("text on panel", t.text, t.panel, 4.5),
+                ("secondary text on field", t.text_secondary, t.field, 4.5),
+                ("secondary text on hover", t.text_secondary, t.hover, 4.5),
+                ("secondary text on selected row", t.text_secondary, t.selected_row, 4.5),
+                ("accent text on panel", t.accent_text, t.panel, 4.5),
+                ("accent text on selected row", t.accent_text, t.selected_row, 4.5),
+                ("white on accent", Color32::WHITE, t.accent, 4.5),
+                ("menu text on menu", t.menu_text, t.menu, 4.5),
+                ("white on menu hover", Color32::WHITE, t.menu_hover, 4.5),
+                ("component on panel", t.component, t.panel, 4.5),
+                ("focus ring on panel", t.focus, t.panel, 3.0),
+                ("focus ring on canvas", t.focus, t.canvas, 3.0),
+            ] {
+                let r = contrast(fg, bg);
+                assert!(r >= min, "{name}: {what} is {r:.2}:1, needs {min}:1");
+            }
+        }
+    }
 
     #[test]
     fn ui_font_draws_every_mac_shortcut_glyph() {
