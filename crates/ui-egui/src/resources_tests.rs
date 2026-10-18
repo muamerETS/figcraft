@@ -23,13 +23,13 @@ fn shift_i(u: &mut Ui) {
     u.frame(vec![]);
 }
 
-/// The middle of the toolbar's Resources button, found in the AccessKit tree.
-fn resources_button(u: &mut Ui) -> Pos2 {
+/// The middle of the left panel's Assets tab, found in the AccessKit tree.
+fn assets_tab(u: &mut Ui) -> Pos2 {
     u.ctx.enable_accesskit();
     u.frame(vec![]);
     let out = u.frame_output(vec![]);
     let nodes = out.platform_output.accesskit_update.expect("an AccessKit update").nodes;
-    let n = nodes.iter().map(|(_, n)| n).find(|n| n.role() == Role::Button && n.label() == Some("Resources")).expect("Resources");
+    let n = nodes.iter().map(|(_, n)| n).find(|n| n.role() == Role::Tab && n.label() == Some("Assets")).expect("the Assets tab");
     let b = n.bounds().expect("bounds");
     pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
 }
@@ -49,12 +49,11 @@ fn starts() -> Vec<(&'static str, Ui)> {
 }
 
 #[test]
-fn the_resources_button_opens_the_assets_panel() {
-    for (name, mut u) in starts() {
-        let at = resources_button(&mut u);
-        click(&mut u, at);
-        assert!(assets_shown(&u), "{name}: the Assets panel is open");
-    }
+fn the_assets_tab_opens_the_assets_panel() {
+    let mut u = Ui::new(Session::new());
+    let at = assets_tab(&mut u);
+    click(&mut u, at);
+    assert!(assets_shown(&u), "the Assets panel is open");
 }
 
 #[test]

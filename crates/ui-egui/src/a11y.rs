@@ -88,6 +88,9 @@ impl Region {
 struct Drawn {
     /// Where each region is (None: not shown).
     rects: [Option<Rect>; 4],
+    /// A second piece of the toolbar apart from the first (the zoom controls at the canvas's
+    /// other corner), kept apart so their union doesn't swallow the canvas between them.
+    toolbar_extra: Option<Rect>,
     /// The control F6 lands on in each region (the active tool, the selected layer's row).
     preferred: [Option<Id>; 4],
     /// The canvas widget.
@@ -144,7 +147,7 @@ impl Nav {
     /// so a control scrolled below a panel's bottom still belongs to it).
     fn region_at(&self, p: Pos2) -> Option<Region> {
         let rect = |r: Region| *r.of(&self.last.rects);
-        if rect(Region::Toolbar).is_some_and(|r| r.contains(p)) {
+        if rect(Region::Toolbar).is_some_and(|r| r.contains(p)) || self.last.toolbar_extra.is_some_and(|r| r.contains(p)) {
             return Some(Region::Toolbar);
         }
         for r in [Region::Layers, Region::Properties] {
@@ -174,6 +177,11 @@ pub fn region(nav: &mut Nav, ui: &Ui, region: Region, role: Role, label: &str) {
 pub fn area(nav: &mut Nav, region: Region, rect: Rect) {
     let slot = region.of_mut(&mut nav.next.rects);
     *slot = Some(slot.map_or(rect, |s| s.union(rect)));
+}
+
+/// The toolbar also covers `rect`, away from its main area (see [`Drawn::toolbar_extra`]).
+pub fn toolbar_area(nav: &mut Nav, rect: Rect) {
+    nav.next.toolbar_extra = Some(nav.next.toolbar_extra.map_or(rect, |s| s.union(rect)));
 }
 
 /// A container node named `label` holding `ui`'s widgets (call before them).

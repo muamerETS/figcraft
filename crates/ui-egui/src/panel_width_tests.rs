@@ -11,7 +11,7 @@ use figcraft_engine::{Prefs, Session};
 use serde_json::json;
 
 use crate::layers_drag_tests::Ui;
-use crate::{CANVAS_MIN, FigApp, ISLAND_GAP, LEFT_PANEL, NoServices, PANEL_DEFAULT, RAIL_W, RIGHT_PANEL, Services, fit_panels};
+use crate::{CANVAS_MIN, FigApp, ISLAND_GAP, LEFT_PANEL, NoServices, PANEL_DEFAULT, RIGHT_PANEL, Services, fit_panels};
 
 /// The panel widths in the preferences each time they were kept.
 type Kept = Arc<Mutex<Vec<(f32, f32)>>>;
@@ -178,14 +178,14 @@ fn the_widths_come_back_with_the_preferences() {
     assert_eq!(widths(&u), (360.0, 300.0));
     let (left, right) = edges(&u);
     let gap = f32::from(ISLAND_GAP);
-    assert_eq!(right - left, 1440.0 - RAIL_W - 360.0 - 300.0 - 2.0 * gap, "the canvas between them (the icon rail, the panels' outer margins)");
+    assert_eq!(right - left, 1440.0 - 360.0 - 300.0 - 2.0 * gap, "the canvas between them (less the panels' outer margins)");
     // Widths from a damaged file are brought within the limits when drawn.
     let mut s = Session::new();
     s.prefs.panel_widths = (-5.0, f32::NAN);
     let mut u = Ui::new(s);
     u.frame(vec![]);
     let (left, right) = edges(&u);
-    assert_eq!((left, 1440.0 - right), (RAIL_W + gap + *LEFT_PANEL.start(), PANEL_DEFAULT + gap));
+    assert_eq!((left, 1440.0 - right), (gap + *LEFT_PANEL.start(), PANEL_DEFAULT + gap));
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn minimize_ui_hides_the_panels_and_keeps_their_widths() {
     // The left sidebar alone: its edge goes with it, the right panel stays.
     u.app.run("view.leftSidebar", json!({}));
     u.frame(vec![]);
-    assert_eq!(edges(&u), (RAIL_W, shown.1));
+    assert_eq!(edges(&u), (0.0, shown.1));
 }
 
 #[test]

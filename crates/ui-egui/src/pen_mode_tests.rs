@@ -29,13 +29,13 @@ fn layers(u: &Ui) -> usize {
     doc.node(u.app.session.page().unwrap()).unwrap().children.len()
 }
 
-/// The middle of the toolbar's mode button named `label`, found in the AccessKit tree.
+/// The middle of the properties panel's mode tab named `label`, found in the AccessKit tree.
 fn mode_button(u: &mut Ui, label: &str) -> Pos2 {
     u.ctx.enable_accesskit();
     u.frame(vec![]);
     let out = u.frame_output(vec![]);
     let nodes = out.platform_output.accesskit_update.expect("an AccessKit update").nodes;
-    let n = nodes.iter().map(|(_, n)| n).find(|n| n.role() == Role::Button && n.label() == Some(label)).expect(label);
+    let n = nodes.iter().map(|(_, n)| n).find(|n| n.role() == Role::Tab && n.label() == Some(label)).expect(label);
     let b = n.bounds().expect("bounds");
     pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
 }
@@ -80,7 +80,7 @@ fn the_mode_switcher_ends_the_pen_path_too() {
         press(&mut esc, Key::Escape, Modifiers::NONE);
         layers(&esc)
     };
-    for (label, tab) in [("Prototype", RightTab::Prototype), ("Inspect", RightTab::Inspect)] {
+    for (label, tab) in [("Prototype", RightTab::Prototype), ("Code", RightTab::Inspect)] {
         let mut u = drawing();
         let at = mode_button(&mut u, label);
         click(&mut u, at);

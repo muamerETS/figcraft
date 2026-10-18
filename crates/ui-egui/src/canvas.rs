@@ -176,6 +176,40 @@ pub(crate) fn page_background(app: &FigApp, ctx: &egui::Context) -> Color32 {
         .unwrap_or(Tokens::get(ctx).canvas)
 }
 
+/// A faint grid on the page behind the layers, moving with the view: lines every power-of-two
+/// page units that lands 56 px or more apart on screen.
+fn backdrop_grid(app: &FigApp, painter: &egui::Painter, rect: Rect, bg: Color32) {
+    let zoom = app.session.ds().map(|d| d.view.zoom).unwrap_or(1.0);
+    if !(zoom.is_finite() && zoom > 0.0) {
+        return;
+    }
+    let mut step = 8.0_f64;
+    while step * zoom < 56.0 && step < 1.0e6 {
+        step *= 2.0;
+    }
+    let px = (step * zoom) as f32;
+    if !(px.is_finite() && px >= 8.0) || rect.width() / px > 400.0 || rect.height() / px > 400.0 {
+        return;
+    }
+    let dark = u32::from(bg.r()) + u32::from(bg.g()) + u32::from(bg.b()) < 3 * 128;
+    let col = if dark { bg.lerp_to_gamma(Color32::WHITE, 0.06) } else { bg.lerp_to_gamma(Color32::BLACK, 0.06) };
+    let origin = app.to_screen(0.0, 0.0);
+    if !(origin.x.is_finite() && origin.y.is_finite()) {
+        return;
+    }
+    let stroke = Stroke::new(1.0, col);
+    let mut x = origin.x + ((rect.min.x - origin.x) / px).ceil() * px;
+    while x < rect.max.x {
+        painter.vline(x.round() + 0.5, rect.y_range(), stroke);
+        x += px;
+    }
+    let mut y = origin.y + ((rect.min.y - origin.y) / px).ceil() * px;
+    while y < rect.max.y {
+        painter.hline(rect.x_range(), y.round() + 0.5, stroke);
+        y += px;
+    }
+}
+
 pub fn show(app: &mut FigApp, ui: &mut Ui, worker: &mut Worker) {
     let rect = ui.max_rect();
     app.canvas.rect = rect;
@@ -238,6 +272,7 @@ pub fn show(app: &mut FigApp, ui: &mut Ui, worker: &mut Worker) {
     // Page background (also behind a stale/partial texture).
     let bg = page_background(app, &ctx);
     painter.rect_filled(rect, CornerRadius::ZERO, bg);
+    backdrop_grid(app, &painter, rect, bg);
     if let (Some(tex), Some(v), true) = (&app.canvas.texture, &app.canvas.tex_view, shown.is_some() && app.canvas.tex_of == shown) {
         // Re-project the last render onto the current view.
         let tl = app.to_screen(v.origin.0, v.origin.1);

@@ -96,7 +96,14 @@ fn a_colour_field_opens_the_colour_picker_and_two_panels_show_side_by_side() {
     u.frame(vec![]);
     let nodes = |u: &mut Ui| u.frame_output(vec![]).platform_output.accesskit_update.unwrap().nodes;
     // The swatch beside a colour field opens the colour picker on it.
-    let swatch = nodes(&mut u).iter().map(|(_, n)| n).find(|n| n.label() == Some("Color")).and_then(|n| n.bounds()).unwrap();
+    // (The plugin's field, not the page colour in the properties panel at the window's right.)
+    let swatch = nodes(&mut u)
+        .iter()
+        .map(|(_, n)| n)
+        .filter(|n| n.label() == Some("Color"))
+        .filter_map(|n| n.bounds())
+        .find(|b| b.x1 < f64::from(u.app.canvas.rect.max.x))
+        .unwrap();
     let at = Pos2::new(((swatch.x0 + swatch.x1) / 2.0) as f32, ((swatch.y0 + swatch.y1) / 2.0) as f32);
     u.button(at, true);
     u.button(at, false);

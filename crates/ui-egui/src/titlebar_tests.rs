@@ -47,6 +47,20 @@ impl Ui {
         ])
     }
 
+    /// The middle of the first control in the screen reader tree whose name `is`.
+    fn named(&mut self, is: impl Fn(&str) -> bool) -> Pos2 {
+        self.ctx.enable_accesskit();
+        self.frame(vec![]);
+        self.time += 1.0 / 60.0;
+        let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SIZE)), time: Some(self.time), ..Default::default() };
+        let app = &mut self.app;
+        let mut out = self.ctx.run_ui(input, |ui| app.ui(ui));
+        out.textures_delta.clear();
+        let nodes = out.platform_output.accesskit_update.expect("an AccessKit update").nodes;
+        let b = nodes.iter().map(|(_, n)| n).find(|n| n.label().is_some_and(&is)).and_then(|n| n.bounds()).expect("a control by that name");
+        pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+    }
+
     fn click(&mut self, p: Pos2) -> Vec<ViewportCommand> {
         let mut cmds = self.button(p, true);
         cmds.extend(self.button(p, false));
@@ -140,23 +154,23 @@ fn edges_and_corners_resize_the_window() {
 }
 
 #[test]
-fn tabs_and_new_tab_keep_their_clicks() {
+fn the_open_files_menu_keeps_its_clicks() {
     let mut u = Ui::new(TitleBar::Custom);
     u.app.ui.home = true;
-    // The open file's tab switches to it.
-    assert!(u.click(pos2(100.0, 20.0)).is_empty());
+    let name = u.app.session.doc().unwrap().name.clone();
+    // The open file's row switches to it; nothing moves the window.
+    let files = u.named(|l| l == "Open files");
+    assert!(u.click(files).is_empty());
+    let row = u.named(|l| l == name || l == format!("{name} •"));
+    assert!(u.click(row).is_empty());
     assert!(!u.app.ui.home);
-    // The `+` right of it opens a new file (found by clicking along the bar past the tab).
-    let mut opened = false;
-    for x in (176..320).step_by(4) {
-        u.time += 1.0;
-        assert!(u.click(pos2(x as f32, 20.0)).is_empty(), "{x}");
-        if u.app.session.docs.len() > 1 {
-            opened = true;
-            break;
-        }
-    }
-    assert!(opened, "the new-tab button took no click");
+    // New design file opens a new file.
+    u.time += 1.0;
+    let files = u.named(|l| l == "Open files");
+    assert!(u.click(files).is_empty());
+    let new = u.named(|l| l == "New design file");
+    assert!(u.click(new).is_empty());
+    assert_eq!(u.app.session.docs.len(), 2, "a new file");
 }
 
 #[test]

@@ -352,6 +352,8 @@ pub enum RightTab {
 pub enum LeftTab {
     File,
     Assets,
+    /// The pages list with the panel to itself.
+    Pages,
 }
 
 /// The window's title bar.
@@ -403,10 +405,10 @@ pub(crate) fn repaint_in(ctx: &egui::Context, secs: f64) {
     }
 }
 
-/// The icon rail's width, its margins included.
-pub const RAIL_W: f32 = 64.0;
 /// The page showing around the floating panels, between them and the window's edges.
-pub const ISLAND_GAP: i8 = 8;
+pub const ISLAND_GAP: i8 = 12;
+/// The floating panels' corners.
+pub const ISLAND_R: u8 = 16;
 
 /// A floating panel: rounded, outlined, `margin` away from its neighbours (none on the side that
 /// meets the canvas, which shows the same page).
@@ -414,9 +416,9 @@ fn island(t: &theme::Tokens, margin: egui::Margin) -> egui::Frame {
     egui::Frame::NONE
         .fill(t.panel)
         .stroke(egui::Stroke::new(1.0, t.border))
-        .corner_radius(egui::CornerRadius::same(14))
+        .corner_radius(egui::CornerRadius::same(ISLAND_R))
         .outer_margin(margin)
-        .inner_margin(egui::Margin { left: 0, right: 0, top: 2, bottom: 8 })
+        .inner_margin(egui::Margin { left: 0, right: 0, top: 4, bottom: 8 })
 }
 
 /// The side panels' widths: the least and most a drag of their edge gives, what a double-click on
@@ -426,7 +428,7 @@ pub const RIGHT_PANEL: std::ops::RangeInclusive<f32> = 240.0..=480.0;
 pub const PANEL_DEFAULT: f32 = 240.0;
 pub const CANVAS_MIN: f32 = 160.0;
 
-/// The widths the side panels are drawn at in `avail` points (the window less the icon rail), from
+/// The widths the side panels are drawn at in `avail` points (the window less their margins), from
 /// the widths asked for (`left`: none while it is closed): each within its limits, and narrower
 /// in a small window so the canvas keeps [`CANVAS_MIN`] (the right panel gives way last).
 pub fn fit_panels(avail: f32, left: Option<f32>, right: f32) -> (f32, f32) {
@@ -1048,6 +1050,16 @@ impl FigApp {
     /// The edge between a side panel and the canvas, at `x` down `rows`: dragging it sizes the
     /// panel (`grows`: +1 for the left panel, whose edge is on its right, −1 for the right one), a
     /// double-click puts back the default width. Returns the width asked for, when it changed.
+    /// The side panels' widths in a window `total` wide (the left one 0 while it's closed): as
+    /// asked, less in a small window. Their margins from the window's edges come out of the canvas.
+    pub(crate) fn panel_widths(&self, total: f32) -> (f32, f32) {
+        let hidden = self.session.ds().map(|d| d.view.ui_hidden).unwrap_or(false);
+        let left_open = !hidden && !self.ui.left_collapsed;
+        let gap = f32::from(ISLAND_GAP);
+        let margins = gap * (f32::from(u8::from(left_open)) + f32::from(u8::from(!hidden)));
+        fit_panels(total - margins, left_open.then_some(self.ui.left_width), self.ui.right_width)
+    }
+
     fn panel_edge(ui: &mut egui::Ui, name: &str, x: f32, rows: egui::Rangef, width: f32, grows: f32) -> Option<f32> {
         let grab = ui.style().interaction.resize_grab_radius_side;
         let rect = egui::Rect::from_x_y_ranges(x - grab..=x + grab, rows);
@@ -1493,21 +1505,10 @@ impl FigApp {
         if !hidden {
             // The panels float over the page as islands: the margins around them show the page.
             ui.painter().rect_filled(ui.available_rect_before_wrap(), egui::CornerRadius::ZERO, canvas::page_background(self, &ctx));
-            egui::Panel::left("left_rail")
-                .exact_size(RAIL_W)
-                .resizable(false)
-                .frame(island(&t, egui::Margin { left: ISLAND_GAP, right: 0, top: ISLAND_GAP, bottom: ISLAND_GAP }))
-                .show(ui, |ui| {
-                    a11y::region(&mut self.ui.nav, ui, a11y::Region::Layers, egui::accesskit::Role::Navigation, i18n::tr("Sidebar"));
-                    layers::rail(self, ui)
-                });
         }
-        // The panels are as wide as asked, less in a window too small for them and the canvas;
-        // their margins from the window's edges come out of the canvas.
         let left_open = !hidden && !self.ui.left_collapsed;
         let gap = f32::from(ISLAND_GAP);
-        let margins = gap * (f32::from(u8::from(left_open)) + f32::from(u8::from(!hidden)));
-        let (left_w, right_w) = fit_panels(ui.available_width() - margins, left_open.then_some(self.ui.left_width), self.ui.right_width);
+        let (left_w, right_w) = self.panel_widths(ui.available_width());
         let rows = ui.available_rect_before_wrap().y_range();
         let mut edges: Vec<(&str, f32, f32, f32)> = Vec::new();
         if left_open {
@@ -1521,6 +1522,7 @@ impl FigApp {
                         _ if self.ui.versions.open => i18n::tr("Version history"),
                         LeftTab::File => i18n::tr("Layers"),
                         LeftTab::Assets => i18n::tr("Assets"),
+                        LeftTab::Pages => i18n::tr("Pages"),
                     };
                     a11y::region(&mut self.ui.nav, ui, a11y::Region::Layers, egui::accesskit::Role::Pane, label);
                     layers::left_panel(self, ui)

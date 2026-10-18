@@ -146,7 +146,7 @@ fn dropping_layers_on_another_page_moves_them_there() {
     u.frame(vec![]);
     // Find Page 2's row in the Pages list: the click that switches to it.
     let mut at = None;
-    for y in (90..400).step_by(4) {
+    for y in (pages_list_top()..400).step_by(4) {
         let p = Pos2::new(150.0, y as f32);
         u.button(p, true);
         u.button(p, false);
@@ -164,4 +164,10 @@ fn dropping_layers_on_another_page_moves_them_there() {
     u.button(page_row, false);
     let doc = u.app.session.doc().unwrap();
     assert_eq!(doc.ancestors(rect).last().copied(), Some(p2), "moved to page 2");
+}
+
+/// Where the left panel's pages list starts: below the panel's margin, its tabs and the page
+/// picker (clicks above it would switch tabs or close the list).
+pub(crate) fn pages_list_top() -> i32 {
+    (crate::tabs::HEIGHT + f32::from(crate::ISLAND_GAP) + 4.0 + 48.0 + 40.0) as i32 + 2
 }

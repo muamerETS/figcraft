@@ -1,4 +1,4 @@
-//! The left panel: file header, File/Assets tabs, pages and the layers tree.
+//! The left panel: Layers/Assets/Pages tabs, the page picker and pages, and the layers tree.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -74,114 +74,70 @@ pub fn node_icon(doc: &Document, id: NodeId) -> Icon {
     }
 }
 
-/// The slim icon rail at the far left: main menu, File, Assets, Variables.
-pub fn rail(app: &mut FigApp, ui: &mut Ui) {
-    let t = Tokens::get(ui.ctx());
-    let r = ui.max_rect();
-    let mut y = r.min.y + 8.0;
-    // Main menu (logo).
-    let lr = Rect::from_center_size(pos2(r.center().x, y + 16.0), vec2(36.0, 32.0));
-    let lresp = ui.interact(lr, ui.id().with("rail_menu"), Sense::click()).tip(tr("Main menu"));
-    if lresp.hovered() || app.ui.main_menu {
-        ui.painter().rect_filled(lr, CornerRadius::same(6), t.hover);
-    }
-    icons::paint(ui.painter(), Rect::from_center_size(lr.center(), vec2(18.0, 18.0)), Icon::Logo, t.icon);
-    if lresp.clicked() {
-        app.ui.main_menu = !app.ui.main_menu;
-    }
-    if app.ui.main_menu {
-        a11y::popup(&mut app.ui.nav, lresp.id, crate::menus::main_menu_id());
-    }
-    y += 44.0;
-    ui.painter().line_segment([pos2(r.min.x + 18.0, y), pos2(r.max.x - 18.0, y)], Stroke::new(1.0, t.border));
-    y += 12.0;
-    let items =
-        [(Icon::Page, tr("File"), Some(LeftTab::File)), (Icon::Assets, tr("Assets"), Some(LeftTab::Assets)), (Icon::Styles, tr("Variables"), None)];
-    for (icon, label, tab) in items {
-        let ir = Rect::from_center_size(pos2(r.center().x, y + 14.0), vec2(36.0, 28.0));
-        let hit = Rect::from_min_max(pos2(r.min.x, y), pos2(r.max.x, y + 48.0));
-        let resp = ui.interact(hit, ui.id().with(("rail", label)), Sense::click()).tip(label);
-        let active = tab.is_some_and(|tb| tb == app.ui.left_tab && !app.ui.left_collapsed && !app.ui.versions.open);
-        if tab.is_some() {
-            a11y::tab(&resp, label, active);
-        }
-        if active {
-            ui.painter().rect_filled(ir, CornerRadius::same(6), t.selected_row);
-        } else if resp.hovered() {
-            ui.painter().rect_filled(ir, CornerRadius::same(6), t.hover);
-        }
-        icons::paint(ui.painter(), Rect::from_center_size(ir.center(), vec2(16.0, 16.0)), icon, if active { t.accent_text } else { t.icon });
-        let shown = crate::widgets::elide_font(ui, label, (r.width() - 6.0).max(0.0), regular(10.0));
-        ui.painter().text(pos2(r.center().x, y + 38.0), Align2::CENTER_CENTER, shown, regular(10.0), t.text);
-        if resp.clicked() {
-            match tab {
-                Some(tb) => {
-                    // Leaving the version history shows the tab rather than collapsing it.
-                    if active {
-                        app.ui.left_collapsed = true;
-                    } else {
-                        app.ui.left_tab = tb;
-                        app.ui.left_collapsed = false;
-                    }
-                    app.ui.versions = Default::default();
-                }
-                None => {
-                    app.ui.variables.get_or_insert_with(Default::default);
-                }
-            }
-        }
-        y += 60.0;
-    }
-}
-
 pub fn left_panel(app: &mut FigApp, ui: &mut Ui) {
     if app.ui.versions.open {
         crate::versions::panel(app, ui);
         return;
     }
-    let t = Tokens::get(ui.ctx());
-    let full = ui.max_rect();
-    // Header: file name (or "Assets") + drafts + collapse.
-    let (head, _) = ui.allocate_exact_size(vec2(full.width(), 64.0), Sense::hover());
-    if app.ui.left_tab == LeftTab::Assets {
-        ui.painter().text(pos2(head.min.x + 16.0, head.min.y + 24.0), Align2::LEFT_CENTER, tr("Assets"), semibold(13.0), t.text);
-    } else {
-        let name = app.session.doc().map(|d| d.name.clone()).unwrap_or_default();
-        let nr = Rect::from_min_max(pos2(head.min.x + 14.0, head.min.y + 14.0), pos2(head.max.x - 48.0, head.min.y + 34.0));
-        let start = std::mem::take(&mut app.ui.rename_file);
-        if let (Some(new), _) = crate::widgets::rename_field(ui, Id::new("filename"), &name, nr, semibold(13.0), start) {
-            app.run("file.rename", json!({"name": new}));
-        }
-        ui.painter().text(pos2(head.min.x + 16.0, head.min.y + 46.0), Align2::LEFT_CENTER, tr("Drafts"), regular(11.0), t.text_secondary);
-    }
-    let hr = Rect::from_center_size(pos2(head.max.x - 24.0, head.min.y + 24.0), vec2(24.0, 24.0));
-    let hresp = ui.interact(hr, ui.id().with("hideui"), Sense::click()).tip(tr("Collapse panel"));
-    if hresp.hovered() {
-        ui.painter().rect_filled(hr, CornerRadius::same(5), t.hover);
-    }
-    icons::paint(ui.painter(), hr.shrink(5.0), Icon::Panels, t.icon);
-    if hresp.clicked() {
-        app.ui.left_collapsed = true;
-    }
-    ui.painter().line_segment([head.left_bottom(), head.right_bottom()], Stroke::new(1.0, t.border));
+    tabs_row(app, ui);
     match app.ui.left_tab {
         LeftTab::File => {
-            pages(app, ui);
+            pages(app, ui, false);
             layers(app, ui);
         }
         LeftTab::Assets => crate::assets_panel::show(app, ui),
+        LeftTab::Pages => pages(app, ui, true),
     }
 }
 
-fn pages(app: &mut FigApp, ui: &mut Ui) {
+/// The panel's tabs: Layers, Assets and Pages, as a segmented control.
+fn tabs_row(app: &mut FigApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
+    let w = ui.available_width();
+    let (row, _) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
+    let seg = Rect::from_min_max(pos2(row.min.x + 10.0, row.min.y + 8.0), pos2(row.max.x - 10.0, row.min.y + 42.0));
+    ui.painter().rect_filled(seg, CornerRadius::same(11), t.field);
+    let tabs =
+        [(LeftTab::File, Icon::Layers, tr("Layers")), (LeftTab::Assets, Icon::Assets, tr("Assets")), (LeftTab::Pages, Icon::Page, tr("Pages"))];
+    let cw = (seg.width() - 6.0) / tabs.len() as f32;
+    for (i, (tab, icon, label)) in tabs.into_iter().enumerate() {
+        let r = Rect::from_min_size(pos2(seg.min.x + 3.0 + i as f32 * cw, seg.min.y + 3.0), vec2(cw, seg.height() - 6.0));
+        let resp = ui.interact(r, ui.id().with(("left_tab", i)), Sense::click()).tip(label);
+        let active = app.ui.left_tab == tab;
+        a11y::tab(&resp, label, active);
+        if active {
+            ui.painter().rect_filled(r.translate(vec2(0.0, 1.0)), CornerRadius::same(9), Color32::from_black_alpha(24));
+            ui.painter().rect_filled(r, CornerRadius::same(9), t.panel);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(r, CornerRadius::same(9), t.hover);
+        }
+        let col = if active { t.text } else { t.text_secondary };
+        let galley = ui.painter().layout_no_wrap(label.to_string(), semibold(11.5), col);
+        // The label goes when the tab is too narrow for it: the icon (and the tooltip) stay.
+        let with_label = galley.size().x + 14.0 + 5.0 + 8.0 <= cw;
+        let content_w = if with_label { 14.0 + 5.0 + galley.size().x } else { 14.0 };
+        let x0 = r.center().x - content_w / 2.0;
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(x0 + 7.0, r.center().y), vec2(14.0, 14.0)), icon, col);
+        if with_label {
+            ui.painter().galley(pos2(x0 + 19.0, r.center().y - galley.size().y / 2.0), galley, col);
+        }
+        if resp.clicked() {
+            app.ui.left_tab = tab;
+            app.ui.versions = Default::default();
+        }
+    }
+}
+
+/// The pages: under the page picker in the Layers tab (`full`: the Pages tab, the list alone with
+/// the panel's height).
+fn pages(app: &mut FigApp, ui: &mut Ui, full: bool) {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
     let (hr, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
-    let tresp = ui.interact(Rect::from_min_size(hr.min, vec2(w - 40.0, 40.0)), ui.id().with("pages_toggle"), Sense::click());
-    a11y::toggle(&tresp, tr("Pages"), app.ui.pages_open);
-    ui.painter().text(pos2(hr.min.x + 16.0, hr.center().y), Align2::LEFT_CENTER, tr("Pages"), semibold(11.0), t.text);
-    if tresp.clicked() {
-        app.ui.pages_open = !app.ui.pages_open;
+    if full {
+        ui.painter().text(pos2(hr.min.x + 16.0, hr.center().y), Align2::LEFT_CENTER, tr("Pages"), semibold(11.0), t.text);
+    } else {
+        page_picker(app, ui, Rect::from_min_max(pos2(hr.min.x + 10.0, hr.min.y + 4.0), pos2(hr.max.x - 66.0, hr.max.y - 4.0)), &t);
     }
     let sr = Rect::from_center_size(pos2(hr.max.x - 50.0, hr.center().y), vec2(24.0, 24.0));
     let sresp = ui.interact(sr, ui.id().with("lsearch"), Sense::click()).tip(crate::shortcuts::tip(tr("Find"), "edit.findReplace"));
@@ -201,7 +157,7 @@ fn pages(app: &mut FigApp, ui: &mut Ui) {
     if aresp.clicked() {
         app.run("page.add", json!({}));
     }
-    if !app.ui.pages_open {
+    if !full && !app.ui.pages_open {
         return;
     }
     let Ok(ds) = app.session.ds() else { return };
@@ -218,7 +174,7 @@ fn pages(app: &mut FigApp, ui: &mut Ui) {
     // Pages are dragged up and down the list to reorder them.
     let mut reorder = crate::list_drag::ListDrag::in_order(ui, "pages");
     // A long list scrolls in its own area, so the layers keep their room below it.
-    let max_h = pages_list_height(app.ui.pages_height, ui.available_height());
+    let max_h = if full { ui.available_height() } else { pages_list_height(app.ui.pages_height, ui.available_height()) };
     let mut moved = egui::ScrollArea::vertical().id_salt("pages_list").max_height(max_h).show(ui, |ui| {
         for (k, (id, name, divider)) in pages.iter().cloned().enumerate() {
             let (r, resp) = ui.allocate_exact_size(vec2(w, 32.0), Sense::click_and_drag());
@@ -308,7 +264,36 @@ fn pages(app: &mut FigApp, ui: &mut Ui) {
         app.run("page.select", json!({"id": p}));
     }
     // `inner_rect` is the room the list was given; a short list shrinks to its rows.
-    pages_edge(app, ui, moved.inner_rect.height().min(moved.content_size.y));
+    if !full {
+        pages_edge(app, ui, moved.inner_rect.height().min(moved.content_size.y));
+    }
+}
+
+/// The current page in a rounded box (its place among the pages beside it); a click shows or
+/// hides the pages list.
+fn page_picker(app: &mut FigApp, ui: &mut Ui, r: Rect, t: &Tokens) {
+    let Ok(ds) = app.session.ds() else { return };
+    let listed: Vec<NodeId> = ds.doc.pages.iter().copied().filter(|p| !ds.doc.is_divider(*p)).collect();
+    let name = ds.doc.node(ds.page).map(|n| n.name.clone()).unwrap_or_default();
+    let place = listed.iter().position(|p| *p == ds.page).map(|i| format!("{} / {}", i + 1, listed.len()));
+    let resp = ui.interact(r, ui.id().with("pages_toggle"), Sense::click()).tip(tr("Pages"));
+    a11y::toggle(&resp, tr("Pages"), app.ui.pages_open);
+    ui.painter().rect_filled(r, CornerRadius::same(10), if resp.hovered() { t.hover } else { Color32::TRANSPARENT });
+    ui.painter().rect_stroke(r, CornerRadius::same(10), Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+    ui.painter().circle_filled(pos2(r.min.x + 14.0, r.center().y), 4.0, t.accent);
+    let chevron = Rect::from_center_size(pos2(r.max.x - 14.0, r.center().y), vec2(10.0, 10.0));
+    icons::paint(ui.painter(), chevron, if app.ui.pages_open { Icon::Chevron } else { Icon::ChevronRight }, t.icon_secondary);
+    let mut right = chevron.min.x - 8.0;
+    if let Some(place) = place {
+        let g = ui.painter().layout_no_wrap(place, regular(11.0), t.text_secondary);
+        right -= g.size().x;
+        ui.painter().galley(pos2(right, r.center().y - g.size().y / 2.0), g, t.text_secondary);
+        right -= 8.0;
+    }
+    crate::bidi::paint_name(ui.painter(), pos2(r.min.x + 26.0, r.center().y), &name, semibold(12.0), t.text, (right - r.min.x - 26.0).max(0.0));
+    if resp.clicked() {
+        app.ui.pages_open = !app.ui.pages_open;
+    }
 }
 
 /// The pages list's height in a panel with `avail` below the Pages header: the height asked for

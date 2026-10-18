@@ -251,7 +251,13 @@ fn arrows_walk_the_layer_rows_and_the_keyboard_follows_the_selection() {
 #[test]
 fn a_menu_opened_from_the_keyboard_takes_it_and_escape_gives_it_back() {
     let (mut u, ..) = setup();
-    f6(&mut u, false);
+    // The zoom menu floats with the tools at the canvas's corner.
+    for _ in 0..8 {
+        if region(&u) == Region::Toolbar {
+            break;
+        }
+        f6(&mut u, true);
+    }
     for _ in 0..100 {
         if name(&u) == "Zoom" {
             break;
@@ -266,7 +272,7 @@ fn a_menu_opened_from_the_keyboard_takes_it_and_escape_gives_it_back() {
     press(&mut u, Key::Escape, Modifiers::NONE);
     u.frame(vec![]);
     assert_eq!(name(&u), "Zoom");
-    assert_eq!(region(&u), Region::Properties, "closing the menu stays in the panel");
+    assert_eq!(region(&u), Region::Toolbar, "closing the menu stays with the tools");
 }
 
 #[test]
@@ -352,8 +358,8 @@ fn every_accessibility_path_runs_with_the_tree_on_without_nested_context_locks()
         let out = u.frame_output(vec![]);
         assert!(out.platform_output.accesskit_update.is_some());
     }
-    // Properties: Tab, a field edit, the zoom menu from the keyboard and back.
-    while region(&u) != Region::Properties {
+    // Toolbar: Tab, the zoom menu from the keyboard and back.
+    while region(&u) != Region::Toolbar {
         f6(&mut u, false);
     }
     for _ in 0..100 {

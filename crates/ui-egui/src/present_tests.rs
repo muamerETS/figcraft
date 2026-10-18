@@ -64,6 +64,30 @@ impl Ui {
         ]);
     }
 
+    /// The middles of the controls in the screen reader tree whose name `is`.
+    pub(crate) fn named_all(&mut self, is: impl Fn(&str) -> bool) -> Vec<Pos2> {
+        self.ctx.enable_accesskit();
+        self.frame(vec![]);
+        self.time += 1.0 / 60.0;
+        let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1440.0, 900.0))), time: Some(self.time), ..Default::default() };
+        let app = &mut self.app;
+        let mut out = self.ctx.run_ui(input, |ui| app.ui(ui));
+        out.textures_delta.clear();
+        let nodes = out.platform_output.accesskit_update.expect("an AccessKit update").nodes;
+        nodes
+            .iter()
+            .map(|(_, n)| n)
+            .filter(|n| n.label().is_some_and(&is))
+            .filter_map(|n| n.bounds())
+            .map(|b| pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
+            .collect()
+    }
+
+    /// The middle of the first control in the screen reader tree whose name `is`.
+    pub(crate) fn named(&mut self, is: impl Fn(&str) -> bool) -> Pos2 {
+        self.named_all(is).first().copied().expect("a control by that name")
+    }
+
     pub(crate) fn key(&mut self, at: Pos2, key: Key) {
         let k = |pressed| Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: Default::default() };
         self.frame(vec![Event::PointerMoved(at), k(true), k(false)]);
