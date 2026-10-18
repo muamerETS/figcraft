@@ -234,6 +234,7 @@ fn a_finished_background_render_wakes_the_ui() {
         uid: 0,
         zoom_preview: false,
         at: web_time::Instant::now(),
+        grid: None,
     });
     let start = Instant::now();
     while wakes.load(Ordering::SeqCst) == 0 {

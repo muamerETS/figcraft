@@ -29,6 +29,26 @@ fn solid_rect_and_page_background() {
 }
 
 #[test]
+fn the_backdrop_grid_sits_on_the_background_behind_the_layers() {
+    let (d, p, _) = doc_with_rect(Color::from_hex("FF0000").unwrap());
+    let bg = [0xF5, 0xF5, 0xF5, 255];
+    let grid = Options { grid: Some(8.0), ..Default::default() };
+    let pix = render_view(&d, p, &view(100, 100), &grid).unwrap();
+    // Lines every 8 units, a shade darker than the light page; between them the page.
+    let line = px(&pix, 64, 5);
+    assert!(line[0] < bg[0] && line[0] > 0xD0, "{line:?}");
+    assert_eq!(px(&pix, 66, 5), bg);
+    // The rectangle covers the lines under it.
+    assert_eq!(px(&pix, 16, 20), [255, 0, 0, 255]);
+    // Off by default (exports), and junk spacings draw nothing.
+    assert_eq!(px(&render_view(&d, p, &view(100, 100), &Options::default()).unwrap(), 64, 5), bg);
+    for junk in [0.0, -8.0, f64::NAN, f64::INFINITY, 1.0e-9] {
+        let pix = render_view(&d, p, &view(100, 100), &Options { grid: Some(junk), ..Default::default() }).unwrap();
+        assert_eq!(px(&pix, 64, 5), bg, "{junk}");
+    }
+}
+
+#[test]
 fn zoom_scales() {
     let (d, p, _) = doc_with_rect(Color::BLACK);
     let v = View { origin: (0.0, 0.0), scale: 2.0, width: 200, height: 200 };
