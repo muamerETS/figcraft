@@ -14,6 +14,7 @@ pub mod cjk;
 pub mod colorpicker;
 pub mod comments;
 pub mod component_panel;
+pub mod context_bar;
 pub mod control;
 pub mod credits;
 pub mod cursors;
@@ -91,6 +92,8 @@ mod colorpicker_selection_tests;
 mod comments_tests;
 #[cfg(test)]
 mod component_props_reorder_tests;
+#[cfg(test)]
+mod context_bar_tests;
 #[cfg(test)]
 mod cursors_tests;
 #[cfg(test)]
@@ -400,6 +403,22 @@ pub(crate) fn repaint_in(ctx: &egui::Context, secs: f64) {
     }
 }
 
+/// The icon rail's width, its margins included.
+pub const RAIL_W: f32 = 64.0;
+/// The page showing around the floating panels, between them and the window's edges.
+pub const ISLAND_GAP: i8 = 8;
+
+/// A floating panel: rounded, outlined, `margin` away from its neighbours (none on the side that
+/// meets the canvas, which shows the same page).
+fn island(t: &theme::Tokens, margin: egui::Margin) -> egui::Frame {
+    egui::Frame::NONE
+        .fill(t.panel)
+        .stroke(egui::Stroke::new(1.0, t.border))
+        .corner_radius(egui::CornerRadius::same(14))
+        .outer_margin(margin)
+        .inner_margin(egui::Margin { left: 0, right: 0, top: 2, bottom: 8 })
+}
+
 /// The side panels' widths: the least and most a drag of their edge gives, what a double-click on
 /// the edge puts back, and how much of the window they leave the canvas.
 pub const LEFT_PANEL: std::ops::RangeInclusive<f32> = 200.0..=480.0;
@@ -449,6 +468,9 @@ pub struct UiState {
     pub palette_armed: bool,
     /// This frame's Actions toolbar button rect: presses on it toggle, never dismiss.
     pub actions_rect: Option<egui::Rect>,
+    /// This frame's command bar in the tab strip (opens the Actions palette like the toolbar's
+    /// button: presses on it toggle, never dismiss).
+    pub command_rect: Option<egui::Rect>,
     /// The Variables editor, when open.
     pub variables: Option<variables_panel::Editor>,
     pub about: bool,
@@ -606,6 +628,7 @@ impl Default for UiState {
             palette_hi: 0,
             palette_armed: false,
             actions_rect: None,
+            command_rect: None,
             variables: None,
             about: false,
             about_tab: dialogs::AboutTab::About,
@@ -1468,26 +1491,31 @@ impl FigApp {
         }
         let hidden = self.session.ds().map(|d| d.view.ui_hidden).unwrap_or(false);
         if !hidden {
+            // The panels float over the page as islands: the margins around them show the page.
+            ui.painter().rect_filled(ui.available_rect_before_wrap(), egui::CornerRadius::ZERO, canvas::page_background(self, &ctx));
             egui::Panel::left("left_rail")
-                .exact_size(56.0)
+                .exact_size(RAIL_W)
                 .resizable(false)
-                .frame(egui::Frame::NONE.fill(t.panel).stroke(egui::Stroke::new(1.0, t.border)))
+                .frame(island(&t, egui::Margin { left: ISLAND_GAP, right: 0, top: ISLAND_GAP, bottom: ISLAND_GAP }))
                 .show(ui, |ui| {
                     a11y::region(&mut self.ui.nav, ui, a11y::Region::Layers, egui::accesskit::Role::Navigation, i18n::tr("Sidebar"));
                     layers::rail(self, ui)
                 });
         }
-        // The panels are as wide as asked, less in a window too small for them and the canvas.
+        // The panels are as wide as asked, less in a window too small for them and the canvas;
+        // their margins from the window's edges come out of the canvas.
         let left_open = !hidden && !self.ui.left_collapsed;
-        let (left_w, right_w) = fit_panels(ui.available_width(), left_open.then_some(self.ui.left_width), self.ui.right_width);
+        let gap = f32::from(ISLAND_GAP);
+        let margins = gap * (f32::from(u8::from(left_open)) + f32::from(u8::from(!hidden)));
+        let (left_w, right_w) = fit_panels(ui.available_width() - margins, left_open.then_some(self.ui.left_width), self.ui.right_width);
         let rows = ui.available_rect_before_wrap().y_range();
         let mut edges: Vec<(&str, f32, f32, f32)> = Vec::new();
         if left_open {
-            edges.push(("left", ui.available_rect_before_wrap().min.x + left_w, left_w, 1.0));
+            edges.push(("left", ui.available_rect_before_wrap().min.x + gap + left_w, left_w, 1.0));
             egui::Panel::left("left_panel")
                 .resizable(false)
-                .exact_size(left_w)
-                .frame(egui::Frame::NONE.fill(t.panel).stroke(egui::Stroke::new(1.0, t.border)))
+                .exact_size(left_w + gap)
+                .frame(island(&t, egui::Margin { left: ISLAND_GAP, right: 0, top: ISLAND_GAP, bottom: ISLAND_GAP }))
                 .show(ui, |ui| {
                     let label = match self.ui.left_tab {
                         _ if self.ui.versions.open => i18n::tr("Version history"),
@@ -1499,11 +1527,11 @@ impl FigApp {
                 });
         }
         if !hidden {
-            edges.push(("right", ui.available_rect_before_wrap().max.x - right_w, right_w, -1.0));
+            edges.push(("right", ui.available_rect_before_wrap().max.x - gap - right_w, right_w, -1.0));
             egui::Panel::right("right_panel")
                 .resizable(false)
-                .exact_size(right_w)
-                .frame(egui::Frame::NONE.fill(t.panel).stroke(egui::Stroke::new(1.0, t.border)))
+                .exact_size(right_w + gap)
+                .frame(island(&t, egui::Margin { left: 0, right: ISLAND_GAP, top: ISLAND_GAP, bottom: ISLAND_GAP }))
                 .show(ui, |ui| {
                     let label = match self.ui.right_tab {
                         RightTab::Design => i18n::tr("Design"),
@@ -1520,6 +1548,10 @@ impl FigApp {
             canvas::show(self, ui, &mut worker);
             self.worker = Some(worker);
             if !hidden {
+                ui.scope_builder(egui::UiBuilder::new().id_salt("context_bar"), |ui| {
+                    a11y::container(ui, egui::accesskit::Role::Toolbar, i18n::tr("Actions"));
+                    context_bar::show(self, ui);
+                });
                 ui.scope_builder(egui::UiBuilder::new().id_salt("toolbar"), |ui| {
                     a11y::container(ui, egui::accesskit::Role::Toolbar, i18n::tr("Tools"));
                     toolbar::show(self, ui);

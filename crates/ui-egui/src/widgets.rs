@@ -884,11 +884,81 @@ pub fn drag_ghost(ctx: &egui::Context, at: egui::Pos2, galley: std::sync::Arc<eg
     painter.galley(r.min + vec2(8.0, 4.0), galley, t.text);
 }
 
+/// Between two sections: a rule, or inside [`cards`] the end of one card and the start of the next.
 pub fn separator(ui: &mut Ui) {
+    if let Some(card) = ui.data(|d| d.get_temp::<Card>(card_id()))
+        && card.layer == ui.layer_id()
+    {
+        close_card(ui, card);
+        ui.add_space(CARD_GAP);
+        open_card(ui, card.x);
+        return;
+    }
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
     ui.painter().line_segment([rect.left_center(), rect.right_center()], Stroke::new(1.0, t.border));
+}
+
+/// The card being drawn: the shape reserved for its background, where it starts and the layer
+/// and columns it spans.
+#[derive(Clone, Copy, Debug)]
+struct Card {
+    shape: egui::layers::ShapeIdx,
+    top: f32,
+    layer: egui::LayerId,
+    x: egui::Rangef,
+}
+
+/// The gap between cards, their inset from the panel's edges, their corners and the space under
+/// their last row.
+const CARD_GAP: f32 = 8.0;
+const CARD_INSET: f32 = 8.0;
+const CARD_R: u8 = 12;
+const CARD_FOOT: f32 = 4.0;
+
+fn card_id() -> Id {
+    Id::new("figcraft_card")
+}
+
+/// Lay out `add` with its sections on cards: each [`separator`] it draws closes the card above
+/// and opens the next (an empty card isn't drawn).
+pub fn cards<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let outer = ui.data(|d| d.get_temp::<Card>(card_id()));
+    let full = ui.max_rect().x_range();
+    open_card(ui, egui::Rangef::new(full.min + CARD_INSET, full.max - CARD_INSET));
+    let r = add(ui);
+    if let Some(card) = ui.data(|d| d.get_temp::<Card>(card_id())) {
+        close_card(ui, card);
+    }
+    ui.data_mut(|d| match outer {
+        Some(c) => {
+            d.insert_temp(card_id(), c);
+        }
+        None => d.remove::<Card>(card_id()),
+    });
+    r
+}
+
+fn open_card(ui: &mut Ui, x: egui::Rangef) {
+    let card = Card { shape: ui.painter().add(egui::Shape::Noop), top: ui.cursor().min.y, layer: ui.layer_id(), x };
+    ui.data_mut(|d| d.insert_temp(card_id(), card));
+}
+
+fn close_card(ui: &mut Ui, card: Card) {
+    let empty = ui.cursor().min.y - card.top < 2.0;
+    if !empty {
+        ui.add_space(CARD_FOOT);
+    }
+    let bottom = ui.cursor().min.y;
+    ui.data_mut(|d| d.remove::<Card>(card_id()));
+    if empty || !card.x.span().is_finite() || card.x.span() <= 0.0 {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let rect = Rect::from_x_y_ranges(card.x, card.top..=bottom);
+    ui.painter()
+        .set(card.shape, egui::epaint::RectShape::new(rect, CornerRadius::same(CARD_R), t.card, Stroke::new(1.0, t.card_border), StrokeKind::Inside));
 }
 
 /// Paint a checkerboard (transparency) in `rect`.

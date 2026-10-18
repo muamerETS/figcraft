@@ -1,4 +1,5 @@
-//! The floating bottom toolbar (UI3): tool groups with flyouts, comments, actions.
+//! The floating tool rail at the canvas's left edge (tool groups with flyouts, resources,
+//! actions, modes), and the bottom pills of the edit modes (vector edit, shape builder, view only).
 
 use egui::{Align2, Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use figcraft_engine::ToolId;
@@ -76,24 +77,35 @@ pub fn show(app: &mut FigApp, ui: &mut Ui) {
     main_toolbar(app, ui, canvas, &t);
 }
 
-/// The main toolbar pill's width: the Actions palette matches it so the two read as one bar.
-pub(crate) fn main_width() -> f32 {
-    let (cell, gap) = (32.0, 4.0);
-    GROUPS.len() as f32 * (cell + gap) + gap * 10.0 + 2.0 * (cell + gap) + 16.0 + 4.0 * 34.0 + 24.0
+/// The tool rail: one row per tool group (with its flyout chevron beside it), Resources and
+/// Actions, then the four modes.
+const RAIL_W: f32 = 50.0;
+const CELL: f32 = 32.0;
+const ROW: f32 = 36.0;
+const MODE_H: f32 = 34.0;
+
+fn rail_height() -> f32 {
+    8.0 + GROUPS.len() as f32 * ROW + 8.0 + 2.0 * ROW + 8.0 + 4.0 * MODE_H + 4.0 + 8.0
+}
+
+/// Where the tool rail sits: 12 px in from the canvas's left edge, centred on it (from its top in
+/// a canvas too short for it).
+pub(crate) fn rail_rect(canvas: Rect) -> Rect {
+    let h = rail_height();
+    let top = (canvas.center().y - h / 2.0).max(canvas.min.y + 12.0);
+    Rect::from_min_size(pos2(canvas.min.x + 12.0, top), vec2(RAIL_W, h))
 }
 
 fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
-    let (cell, gap) = (32.0, 4.0);
-    let width = main_width();
-    let rect = pill(ui, &mut app.ui.nav, canvas, width, t);
+    let rect = pill_at(ui, &mut app.ui.nav, rail_rect(canvas), t);
     let current = app.session.tool.tool;
-    let mut x = rect.min.x + 8.0;
-    let cy = rect.center().y;
+    let x = rect.min.x + 5.0;
+    let mut y = rect.min.y + 8.0;
     for g in GROUPS {
         let in_group = g.tools.iter().any(|(tid, _)| *tid == current);
         let shown = if in_group { current } else { remembered(ui, g.key, g.tools.first().map(|x| x.0).unwrap_or(ToolId::Move)) };
         let icon = g.tools.iter().find(|(tid, _)| *tid == shown).map(|(_, i)| *i).unwrap_or(Icon::Move);
-        let r = Rect::from_center_size(pos2(x + cell / 2.0, cy), vec2(cell, cell));
+        let r = Rect::from_min_size(pos2(x, y + (ROW - CELL) / 2.0), vec2(CELL, CELL));
         let resp = tool_cell(ui, t, r, ("tool", g.key), icon, in_group, &format!("{}  {}", tr(shown.label()), pretty_shortcut(shown.shortcut())));
         if in_group {
             a11y::prefer(&mut app.ui.nav, Region::Toolbar, resp.id);
@@ -108,36 +120,36 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
                 app.run("tool.set", json!({"tool": shown.id()}));
             }
         }
-        x += cell;
-        // Flyout chevron.
+        // Flyout chevron, beside the tool.
         if g.tools.len() > 1 {
-            let cr = Rect::from_center_size(pos2(x + 5.0, cy), vec2(10.0, cell));
+            let cr = Rect::from_min_size(pos2(r.max.x + 1.0, r.min.y), vec2(10.0, CELL));
             let cresp = ui.interact(cr, ui.id().with(("flyout", g.key)), Sense::click());
             let open = app.ui.tool_flyout == Some(g.key);
             a11y::menu_button(&cresp, tr(g.name), open);
             if open {
                 a11y::popup(&mut app.ui.nav, cresp.id, flyout_id(g.key));
             }
-            if cresp.hovered() {
+            if cresp.hovered() || open {
                 ui.painter().rect_filled(cr, CornerRadius::same(4), t.hover);
             }
-            icons::paint(ui.painter(), Rect::from_center_size(cr.center(), vec2(10.0, 10.0)), Icon::Chevron, t.icon_secondary);
+            icons::paint(ui.painter(), Rect::from_center_size(cr.center(), vec2(10.0, 10.0)), Icon::ChevronRight, t.icon_secondary);
             if cresp.clicked() {
                 app.ui.tool_flyout = if app.ui.tool_flyout == Some(g.key) { None } else { Some(g.key) };
             }
-            x += 10.0;
         }
-        x += gap;
         if app.ui.tool_flyout == Some(g.key) {
-            flyout(app, ui, g, pos2(r.min.x, rect.min.y - 8.0));
+            flyout(app, ui, g, pos2(rect.max.x + 8.0, r.min.y - 8.0));
         }
+        y += ROW;
     }
+    hdivider(ui, t, rect, y + 4.0);
+    y += 8.0;
     // Resources (components, plugins) opens the Assets panel; Actions palette.
     for (icon, tip, id) in [
         (Icon::Assets, crate::shortcuts::key_tip(tr("Resources"), "Shift+I"), "resources"),
         (Icon::Actions, crate::shortcuts::tip(tr("Actions"), "app.actions"), "actions"),
     ] {
-        let r = Rect::from_center_size(pos2(x + cell / 2.0, cy), vec2(cell, cell));
+        let r = Rect::from_min_size(pos2(x, y + (ROW - CELL) / 2.0), vec2(CELL, CELL));
         let resp = ui.interact(r, ui.id().with(id), Sense::click()).tip(tip);
         if id == "actions" {
             app.ui.actions_rect = Some(r);
@@ -145,11 +157,11 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
         // The Actions button reads on while its panel is open; clicking it again closes it.
         let actions_open = id == "actions" && app.ui.palette.is_some();
         if actions_open {
-            ui.painter().rect_filled(r, CornerRadius::same(5), ACCENT);
+            ui.painter().rect_filled(r, CornerRadius::same(9), ACCENT);
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
+            ui.painter().rect_filled(r, CornerRadius::same(9), t.hover);
         }
-        icons::paint(ui.painter(), r.shrink(7.0), icon, if actions_open { Color32::WHITE } else { t.icon });
+        icons::paint(ui.painter(), r.shrink(8.0), icon, if actions_open { Color32::WHITE } else { t.icon });
         if resp.clicked() {
             if id == "actions" {
                 crate::menus::toggle_palette(&mut app.ui);
@@ -157,10 +169,10 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
                 app.run("view.assets", json!({}));
             }
         }
-        x += cell + 4.0;
+        y += ROW;
     }
-    divider(ui, t, x, cy);
-    x += 8.0;
+    hdivider(ui, t, rect, y + 4.0);
+    y += 8.0;
     // Mode switcher: Draw · Design · Prototype · Inspect (code).
     let modes = [(Icon::Pencil, tr("Draw")), (Icon::Frame, tr("Design")), (Icon::Prototype, tr("Prototype")), (Icon::Code, tr("Inspect"))];
     let active = match app.ui.right_tab {
@@ -169,10 +181,10 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
         crate::RightTab::Prototype => 2,
         crate::RightTab::Inspect => 3,
     };
-    let seg = Rect::from_min_size(pos2(x, cy - 18.0), vec2(4.0 * 34.0 + 4.0, 36.0));
-    ui.painter().rect_filled(seg, CornerRadius::same(8), t.field);
+    let seg = Rect::from_min_size(pos2(rect.min.x + 5.0, y), vec2(RAIL_W - 10.0, 4.0 * MODE_H + 4.0));
+    ui.painter().rect_filled(seg, CornerRadius::same(10), t.field);
     for (i, (icon, tip)) in modes.iter().enumerate() {
-        let r = Rect::from_min_size(pos2(seg.min.x + 2.0 + i as f32 * 34.0, seg.min.y + 2.0), vec2(34.0, 32.0));
+        let r = Rect::from_min_size(pos2(seg.min.x + 2.0, seg.min.y + 2.0 + i as f32 * MODE_H), vec2(seg.width() - 4.0, MODE_H - 2.0));
         let resp = ui.interact(r, ui.id().with(("mode", i)), Sense::click()).on_hover_text(*tip);
         a11y::toggle(&resp, tip, i == active);
         if i == active {
@@ -181,7 +193,12 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
         } else if resp.hovered() {
             ui.painter().rect_filled(r, CornerRadius::same(6), t.hover);
         }
-        icons::paint(ui.painter(), r.shrink(9.0), *icon, if i == active { t.accent_text } else { t.icon_secondary });
+        icons::paint(
+            ui.painter(),
+            Rect::from_center_size(r.center(), vec2(16.0, 16.0)),
+            *icon,
+            if i == active { t.accent_text } else { t.icon_secondary },
+        );
         if resp.clicked() {
             match i {
                 0 => {
@@ -349,7 +366,11 @@ pub(crate) fn pill_rect(canvas: Rect, width: f32) -> Rect {
 /// The floating pill (shadow, panel, border) `width` wide at the bottom centre of the canvas: the
 /// toolbar region keyboard navigation moves through.
 fn pill(ui: &Ui, nav: &mut Nav, canvas: Rect, width: f32, t: &Tokens) -> Rect {
-    let rect = pill_rect(canvas, width);
+    pill_at(ui, nav, pill_rect(canvas, width), t)
+}
+
+/// The floating pill at `rect`.
+fn pill_at(ui: &Ui, nav: &mut Nav, rect: Rect, t: &Tokens) -> Rect {
     // The pill takes the press and the drag over it: its buttons sense clicks only, and egui gives
     // a drag the canvas under them would sense to the canvas, so the pen placed an anchor there.
     // Not focusable: the keyboard walks the buttons, not the pill.
@@ -358,11 +379,18 @@ fn pill(ui: &Ui, nav: &mut Nav, canvas: Rect, width: f32, t: &Tokens) -> Rect {
     a11y::container_bounds(ui, rect);
     let painter = ui.painter();
     for (i, a) in [(6.0, 10u8), (3.0, 16), (1.0, 24)] {
-        painter.rect_filled(rect.expand(i).translate(vec2(0.0, i * 0.5)), CornerRadius::same((13.0 + i) as u8), Color32::from_black_alpha(a));
+        painter.rect_filled(rect.expand(i).translate(vec2(0.0, i * 0.5)), CornerRadius::same((PILL_R + i) as u8), Color32::from_black_alpha(a));
     }
-    painter.rect_filled(rect, CornerRadius::same(13), t.panel);
-    painter.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0, t.border), StrokeKind::Inside);
+    painter.rect_filled(rect, CornerRadius::same(PILL_R as u8), t.panel);
+    painter.rect_stroke(rect, CornerRadius::same(PILL_R as u8), Stroke::new(1.0, t.border), StrokeKind::Inside);
     rect
+}
+
+const PILL_R: f32 = 16.0;
+
+/// A horizontal separator across the rail `rect` at `y`.
+fn hdivider(ui: &Ui, t: &Tokens, rect: Rect, y: f32) {
+    ui.painter().line_segment([pos2(rect.min.x + 12.0, y), pos2(rect.max.x - 12.0, y)], Stroke::new(1.0, t.border));
 }
 
 /// A square tool button: accent when active, tinted on hover; `tip` is its tooltip and name.
@@ -378,8 +406,8 @@ fn tool_cell(ui: &mut Ui, t: &Tokens, r: Rect, id: impl egui::AsIdSalt, icon: Ic
     } else {
         Color32::TRANSPARENT
     };
-    ui.painter().rect_filled(r, CornerRadius::same(5), bg);
-    icons::paint(ui.painter(), r.shrink(7.0), icon, if active { Color32::WHITE } else { t.icon });
+    ui.painter().rect_filled(r, CornerRadius::same(9), bg);
+    icons::paint(ui.painter(), r.shrink(8.0), icon, if active { Color32::WHITE } else { t.icon });
     resp
 }
 
@@ -400,13 +428,17 @@ fn done_button(ui: &mut Ui, t: &Tokens, x: f32, cy: f32, tip: &str) -> bool {
     resp.clicked()
 }
 
-fn flyout(app: &mut FigApp, ui: &mut Ui, g: &Group, bottom_left: egui::Pos2) {
+/// A group's flyout, opening right of the rail from `top_left` (up from the window's bottom edge
+/// when it wouldn't fit below).
+fn flyout(app: &mut FigApp, ui: &mut Ui, g: &Group, top_left: egui::Pos2) {
     let t = Tokens::get(ui.ctx());
     let item_h = 32.0;
     let w = 220.0;
     let h = item_h * g.tools.len() as f32 + 16.0;
+    let bottom = ui.ctx().content_rect().max.y - 8.0;
+    let at = pos2(top_left.x, top_left.y.min(bottom - h));
     let mut chosen = None;
-    egui::Area::new(flyout_id(g.key)).fixed_pos(pos2(bottom_left.x, bottom_left.y - h)).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+    egui::Area::new(flyout_id(g.key)).fixed_pos(at).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
         ui.painter().rect_filled(rect, CornerRadius::same(13), t.menu);
         let mut y = rect.min.y + 8.0;

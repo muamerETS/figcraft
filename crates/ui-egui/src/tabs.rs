@@ -186,6 +186,10 @@ pub fn tab_bar(app: &mut FigApp, ui: &mut Ui) {
         }
         // Right side: theme toggle (left of the window buttons).
         let theme_r = Rect::from_center_size(pos2(rect.max.x - buttons_w - 24.0, rect.center().y), vec2(28.0, 28.0));
+        app.ui.command_rect = None;
+        if app.has_files() && !app.ui.home && app.ui.present.is_none() {
+            command_bar(app, ui, rect, nr.max.x + 12.0, theme_r.min.x - 12.0);
+        }
         let tresp = ui.interact(theme_r, ui.id().with("theme"), Sense::click()).tip(tr("Toggle light/dark theme"));
         if tresp.hovered() {
             ui.painter().rect_filled(theme_r, CornerRadius::same(5), t.hover);
@@ -233,6 +237,51 @@ pub fn tab_bar(app: &mut FigApp, ui: &mut Ui) {
         let _ = Color32::TRANSPARENT;
         let _ = Align2::LEFT_TOP;
     });
+}
+
+/// The command bar: centred on the strip between `left` and `right` (left of centre when the
+/// tabs leave less room on that side; not drawn when there's no room). A click opens the Actions
+/// palette, as its shortcut does.
+fn command_bar(app: &mut FigApp, ui: &mut Ui, bar: Rect, left: f32, right: f32) {
+    const MAX_W: f32 = 380.0;
+    const MIN_W: f32 = 200.0;
+    let t = Tokens::get(ui.ctx());
+    let w = MAX_W.min(right - left);
+    if w < MIN_W {
+        return;
+    }
+    let x = (bar.center().x - w / 2.0).clamp(left, right - w);
+    let r = Rect::from_min_size(pos2(x, bar.center().y - 14.0), vec2(w, 28.0));
+    let keys = crate::shortcuts::shortcut("app.actions").map(crate::toolbar::pretty_shortcut).unwrap_or_default();
+    let resp = ui.interact(r, ui.id().with("command_bar"), Sense::click()).tip(crate::shortcuts::tip(tr("Actions"), "app.actions"));
+    crate::a11y::menu_button(&resp, tr("Search or run a command"), app.ui.palette.is_some());
+    app.ui.command_rect = Some(r);
+    let open = app.ui.palette.is_some();
+    let fill = if resp.hovered() || open { t.hover } else { t.field };
+    ui.painter().rect_filled(r, CornerRadius::same(10), fill);
+    if open {
+        ui.painter().rect_stroke(r, CornerRadius::same(10), Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(14.0, 14.0)), Icon::Search, t.icon_secondary);
+    let mut text_right = r.max.x - 10.0;
+    if !keys.is_empty() {
+        let g = ui.painter().layout_no_wrap(keys, regular(11.0), t.text_secondary);
+        let kr = Rect::from_min_size(pos2(r.max.x - 8.0 - g.size().x - 12.0, r.center().y - 10.0), vec2(g.size().x + 12.0, 20.0));
+        ui.painter().rect_filled(kr, CornerRadius::same(6), t.panel);
+        ui.painter().galley(kr.center() - g.size() / 2.0, g, t.text_secondary);
+        text_right = kr.min.x - 8.0;
+    }
+    let hint = crate::widgets::elide_font(ui, tr("Search or run a command"), (text_right - r.min.x - 34.0).max(0.0), regular(12.0));
+    ui.painter().text(pos2(r.min.x + 32.0, r.center().y), Align2::LEFT_CENTER, hint, regular(12.0), t.text_secondary);
+    // While the palette is open, the keyboard is its: arrows moving focus up here and Enter
+    // "clicking" the bar would close it instead of running its row.
+    let toggle = if open { resp.clicked_by(egui::PointerButton::Primary) } else { resp.clicked() };
+    if open && resp.has_focus() {
+        resp.surrender_focus();
+    }
+    if toggle {
+        crate::menus::toggle_palette(&mut app.ui);
+    }
 }
 
 fn resume_presentation(app: &mut FigApp) {

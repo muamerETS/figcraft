@@ -163,6 +163,19 @@ fn pointer_event(app: &FigApp, kind: PointerKind, pos: Pos2, m: &egui::Modifiers
     }
 }
 
+/// The current page's background as the screen shows it (the theme's canvas colour without one):
+/// the canvas and the margins around the floating panels.
+pub(crate) fn page_background(app: &FigApp, ctx: &egui::Context) -> Color32 {
+    app.session
+        .ds()
+        .ok()
+        .and_then(|ds| match ds.doc.node(ds.page).map(|n| &n.kind) {
+            Some(NodeKind::Page { background, .. }) => Some(doc_c32(ctx, *background)),
+            _ => None,
+        })
+        .unwrap_or(Tokens::get(ctx).canvas)
+}
+
 pub fn show(app: &mut FigApp, ui: &mut Ui, worker: &mut Worker) {
     let rect = ui.max_rect();
     app.canvas.rect = rect;
@@ -223,15 +236,7 @@ pub fn show(app: &mut FigApp, ui: &mut Ui, worker: &mut Worker) {
     let painter = ui.painter_at(rect);
     let t = Tokens::get(&ctx);
     // Page background (also behind a stale/partial texture).
-    let bg = app
-        .session
-        .ds()
-        .ok()
-        .and_then(|ds| match ds.doc.node(ds.page).map(|n| &n.kind) {
-            Some(NodeKind::Page { background, .. }) => Some(doc_c32(&ctx, *background)),
-            _ => None,
-        })
-        .unwrap_or(t.canvas);
+    let bg = page_background(app, &ctx);
     painter.rect_filled(rect, CornerRadius::ZERO, bg);
     if let (Some(tex), Some(v), true) = (&app.canvas.texture, &app.canvas.tex_view, shown.is_some() && app.canvas.tex_of == shown) {
         // Re-project the last render onto the current view.

@@ -200,13 +200,14 @@ pub fn right_panel(app: &mut FigApp, ui: &mut Ui) {
             ui.add_space(80.0);
             return;
         }
-        match app.ui.right_tab {
+        ui.add_space(8.0);
+        widgets::cards(ui, |ui| match app.ui.right_tab {
             // The Frame tool shows the frame presets.
             RightTab::Design if app.session.tool.tool == figcraft_engine::ToolId::Frame => crate::frame_presets::panel(app, ui),
             RightTab::Design => design(app, ui),
             RightTab::Prototype => crate::proto_panel::prototype(app, ui),
             RightTab::Inspect => inspect(app, ui),
-        }
+        });
         ui.add_space(80.0);
         a11y::scroll_focus(&mut app.ui.nav, ui);
     });

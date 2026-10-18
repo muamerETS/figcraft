@@ -86,23 +86,38 @@ fn used_plugin_resolves_to_a_recent_row() {
 #[test]
 fn outside_press_closes_the_panel() {
     let mut u = Ui::new(Session::new());
+    // In the tab strip, right of the command bar (which toggles the panel instead).
+    let outside = Pos2::new(1000.0, 20.0);
     u.app.ui.palette = Some(String::new());
     u.app.ui.palette_armed = true;
     // The opening press: spared, and disarmed.
-    u.button(Pos2::new(720.0, 20.0), true);
-    u.button(Pos2::new(720.0, 20.0), false);
+    u.button(outside, true);
+    u.button(outside, false);
     assert!(u.app.ui.palette.is_some(), "the opening press is spared");
     // The next press outside: closed.
-    u.button(Pos2::new(720.0, 20.0), true);
-    u.button(Pos2::new(720.0, 20.0), false);
+    u.button(outside, true);
+    u.button(outside, false);
     assert!(u.app.ui.palette.is_none(), "an outside press closes the panel");
     // One click is enough: the spare expires on frames without a press.
     u.app.ui.palette = Some(String::new());
     u.app.ui.palette_armed = true;
     u.frame(vec![]);
-    u.button(Pos2::new(720.0, 20.0), true);
-    u.button(Pos2::new(720.0, 20.0), false);
+    u.button(outside, true);
+    u.button(outside, false);
     assert!(u.app.ui.palette.is_none(), "a single outside press closes the panel");
+}
+
+/// The command bar in the tab strip opens the panel and, open, closes it again.
+#[test]
+fn the_command_bar_toggles_the_panel() {
+    let mut u = Ui::new(Session::new());
+    let bar = u.app.ui.command_rect.expect("the command bar shows with a file open").center();
+    u.button(bar, true);
+    u.button(bar, false);
+    assert!(u.app.ui.palette.is_some(), "a click opens the panel");
+    u.button(bar, true);
+    u.button(bar, false);
+    assert!(u.app.ui.palette.is_none(), "a second click closes it");
 }
 
 fn rows(groups: &[(String, Vec<crate::menus::ActionRow>)]) -> Vec<&crate::menus::ActionRow> {

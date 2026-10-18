@@ -70,7 +70,8 @@ fn window_button(k: usize) -> Pos2 {
 }
 
 /// Empty title bar space, right of the tabs.
-const EMPTY: Pos2 = pos2(800.0, 20.0);
+/// Right of the command bar (centred on the strip), left of the theme button.
+const EMPTY: Pos2 = pos2(1000.0, 20.0);
 
 #[test]
 fn window_buttons_minimise_maximise_and_close() {

@@ -84,8 +84,8 @@ fn expanding_collapsing_and_revealing() {
     u.frame(vec![]);
     // Alt-click on a disclosure arrow opens everything inside (silent, pinned); again closes it.
     let row = u.row_at(f);
-    // The arrow sits at the row's left, after the panel's inset.
-    let arrow = Pos2::new(74.0, row.y);
+    // The arrow sits at the row's left, after the rail, the panel's margin and its inset.
+    let arrow = Pos2::new(crate::RAIL_W + f32::from(crate::ISLAND_GAP) + 18.0, row.y);
     click(&mut u, arrow, ALT);
     assert!(u.app.ui.expanded.contains(&f) && u.app.ui.expanded.contains(&g), "silent: Alt-click on an arrow expands every layer inside (pinned)");
     click(&mut u, arrow, ALT);
@@ -112,8 +112,10 @@ fn expanding_collapsing_and_revealing() {
 #[test]
 fn sweeping_across_eyes_and_padlocks_sets_several_layers() {
     let (mut u, [a, b, c, d]) = four();
-    // The eye and padlock are at the row's right end (the left panel spans 56…296).
-    let (eye, padlock) = (272.0, 250.0);
+    // The eye and padlock are at the row's right end (the left panel ends after the rail, its
+    // margin and its default width).
+    let right = crate::RAIL_W + f32::from(crate::ISLAND_GAP) + crate::PANEL_DEFAULT;
+    let (eye, padlock) = (right - 24.0, right - 46.0);
     let (rd, rb) = (u.row_at(d), u.row_at(b));
     let steps = u.app.session.undo_depth().0;
     let from = Pos2::new(eye, rd.y);

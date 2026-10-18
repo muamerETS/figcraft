@@ -978,8 +978,9 @@ fn select_layer_menu(app: &mut FigApp, ui: &mut Ui, pos: egui::Pos2, t: &Tokens)
     }
 }
 
-/// The Actions palette's content height (the frame adds its own 8 px margins).
+/// The Actions palette's content height (the frame adds its own 8 px margins) and its width.
 const PALETTE_H: f32 = 450.0;
+const PALETTE_W: f32 = 560.0;
 
 /// Open the Actions palette afresh (empty search, All tab, first row highlighted), or close it.
 pub fn set_palette(ui: &mut crate::UiState, open: bool) {
@@ -1001,18 +1002,24 @@ pub fn toggle_palette(ui: &mut crate::UiState) {
 fn palette(app: &mut FigApp, ctx: &egui::Context) {
     let Some(mut q) = app.ui.palette.clone() else { return };
     let t = Tokens::get(ctx);
-    // Same centre and width as the toolbar pill (it centres on the canvas, not the window),
-    // floating 8 px above it. Fixed size: switching tabs never resizes the panel.
-    let bar_w = crate::toolbar::main_width();
-    let bar = crate::toolbar::pill_rect(app.canvas.rect, bar_w);
-    let area = Rect::from_min_max(pos2(bar.min.x, bar.min.y - 8.0 - (PALETTE_H + 16.0)), pos2(bar.max.x, bar.min.y - 8.0));
+    // Dropped from the command bar (the top centre of the canvas without one), within the window.
+    // Fixed size: switching tabs never resizes the panel.
+    let screen = ctx.content_rect();
+    let bar_w = PALETTE_W.min(screen.width() - 16.0).max(240.0);
+    let centre = app.ui.command_rect.map_or(app.canvas.rect.center().x, |r| r.center().x);
+    let left = (centre - bar_w / 2.0).clamp(screen.min.x + 8.0, (screen.max.x - 8.0 - bar_w).max(screen.min.x + 8.0));
+    let top = pos2(left, app.canvas.rect.min.y + 8.0);
+    let area = Rect::from_min_size(top, vec2(bar_w, PALETTE_H + 16.0));
     let mut run: Option<String> = None;
     let mut close = false;
     // A press anywhere outside closes the panel. The opening press is spared once, and the
     // spare expires the first frame without a press (so the next outside press always closes).
     let pressed = ctx.input(|i| i.pointer.any_pressed());
     if pressed && !std::mem::replace(&mut app.ui.palette_armed, false) {
-        let on_toggle = app.ui.actions_rect.is_some_and(|b| ctx.input(|i| i.pointer.hover_pos().is_some_and(|p| b.contains(p))));
+        let on_toggle = [app.ui.actions_rect, app.ui.command_rect]
+            .into_iter()
+            .flatten()
+            .any(|b| ctx.input(|i| i.pointer.hover_pos().is_some_and(|p| b.contains(p))));
         let outside = !on_toggle && ctx.input(|i| i.pointer.hover_pos().map(|p| !area.contains(p)).unwrap_or(false));
         if outside {
             close = true;
