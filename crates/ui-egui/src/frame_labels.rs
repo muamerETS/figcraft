@@ -103,7 +103,7 @@ pub fn draw(app: &FigApp, painter: &Painter, t: &Tokens, doc: &Document, id: Nod
     let col = if is_comp {
         component()
     } else if selected || hovered {
-        accent()
+        crate::theme::canvas_accent(painter.ctx())
     } else {
         t.text_secondary
     };

@@ -200,25 +200,20 @@ fn dropped(app: &mut FigApp, ctx: &egui::Context) {
         }
         // `opens` saw an extension, so there is a file name to tell the format by.
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        let params = if path.exists() {
-            json!({"path": path.to_string_lossy()})
-        } else if let Some(bytes) = crate::dropped_bytes(&f) {
-            use base64::Engine as _;
-            let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-            json!({"data": data, "name": name})
+        let (params, read) = if path.exists() {
+            (json!({"path": path.to_string_lossy()}), None)
         } else {
-            continue;
+            (json!({"name": name}), Some(crate::dropped_bytes(&f, &name)))
         };
-        app.ui.pending_opens.push(crate::pending_open::PendingOpen { label: name, params, command: "file.open", target: None });
+        app.ui.pending_opens.push(crate::pending_open::PendingOpen { label: name, params, command: "file.open", target: None, read });
     }
 }
 
 fn sidebar(app: &mut FigApp, ui: &mut Ui, t: &Tokens, left: Rect) {
     let mut y = left.min.y + 16.0;
     let tile = Rect::from_min_size(pos2(left.min.x + 14.0, y), vec2(32.0, 32.0));
-    ui.painter().rect_filled(tile, CornerRadius::same(8), accent());
-    icons::paint(ui.painter(), Rect::from_center_size(tile.center(), vec2(18.0, 18.0)), Icon::Logo, Color32::WHITE);
-    ui.painter().text(pos2(tile.max.x + 12.0, tile.center().y), Align2::LEFT_CENTER, "FigCraft", semibold(15.0), t.text);
+    crate::theme::paint_app_icon(ui, tile);
+    crate::theme::paint_wordmark(ui.painter(), pos2(tile.max.x + 10.0, tile.center().y), 16.0, t);
     // The main menu and the open files, at the header's end.
     let files_r = Rect::from_min_size(pos2(left.max.x - 12.0 - 26.0, tile.center().y - 13.0), vec2(26.0, 26.0));
     let files = ui.interact(files_r, ui.id().with("open_files"), Sense::click()).tip(tr("Open files"));

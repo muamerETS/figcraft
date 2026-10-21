@@ -43,6 +43,7 @@ fn body(app: &mut FigApp, ui: &mut Ui) {
         // The browser has no files to save to.
         if !cfg!(target_arch = "wasm32") {
             rows.switch(ui, tr("Save files automatically"), prefs.auto_save, "pref.autoSave", &mut toggles);
+            rows.switch(ui, tr("Start on the Home screen"), prefs.start_on_home, "pref.startOnHome", &mut toggles);
         }
         rows.row(ui, tr("Nudge amount"), |ui| {
             let big = nudge_field(ui, "pref_nudge_big", prefs.nudge_big, 1.0..=1000.0);
@@ -72,8 +73,11 @@ fn body(app: &mut FigApp, ui: &mut Ui) {
             }
         });
         rows.row(ui, tr("Colors"), |ui| {
-            const PALETTES: [(&str, &str, &str); 2] =
-                [(tr_noop("Modern"), "modern", "view.paletteModern"), (tr_noop("Classic"), "classic", "view.paletteClassic")];
+            const PALETTES: [(&str, &str, &str); 3] = [
+                (tr_noop("Modern"), "modern", "view.paletteModern"),
+                (tr_noop("Brand"), "brand", "view.paletteBrand"),
+                (tr_noop("Classic"), "classic", "view.paletteClassic"),
+            ];
             let labels: Vec<&str> = PALETTES.iter().map(|(l, ..)| tr(l)).collect();
             let active = PALETTES.iter().position(|(_, id, _)| prefs.palette == *id).unwrap_or(0);
             let picked = ui.allocate_ui(vec2(CONTROL_W, FIELD_H), |ui| widgets::segmented_text(ui, &labels, active)).inner;
@@ -81,6 +85,7 @@ fn body(app: &mut FigApp, ui: &mut Ui) {
                 app.run(cmd, json!({}));
             }
         });
+        interface_size(app, ui, rows, prefs.ui_scale);
         rows.row(ui, tr("Language"), |ui| language(app, ui));
         if let Some(lang) = i18n::current().filter(|l| l.draft) {
             let note = trf("{language}: draft translation, waiting for a native speaker's review.", &[("language", &lang.name)]);
@@ -211,6 +216,39 @@ fn nudge_field(ui: &mut Ui, id: &str, value: f64, range: std::ops::RangeInclusiv
     let typed = widgets::text_field(ui, egui::Id::new(id), &shown, 64.0, "")?;
     let v: f64 = typed.trim().parse().ok().filter(|v: &f64| v.is_finite())?;
     Some(v.clamp(*range.start(), *range.end()))
+}
+
+/// Interface size: a size relative to the system's display scale (100 % is the system's own), as a
+/// drop-down that takes effect at once. The browser has its own zoom, so there the row only says so.
+fn interface_size(app: &mut FigApp, ui: &mut Ui, rows: &mut Rows, chosen: f64) {
+    if cfg!(target_arch = "wasm32") {
+        rows.row(ui, tr("Interface size"), |_| {});
+        rows.note(ui, tr("Use your browser's zoom to change the interface size."));
+        return;
+    }
+    let percent = |size: f64| trf("{percent}%", &[("percent", &crate::ui_scale::percent(size as f32))]);
+    let shown = percent(chosen);
+    rows.row(ui, tr("Interface size"), |ui| {
+        let resp = widgets::dropdown(ui, &shown, CONTROL_W, None);
+        crate::a11y::combo(&resp, tr("Interface size"), &shown, crate::a11y::menu_open(&resp));
+        crate::right::menu_popup(&resp).show(|ui| {
+            for size in crate::ui_scale::SIZES {
+                if crate::right::menu_check(ui, (chosen - size).abs() < 1e-6, &percent(size), "") {
+                    app.run("pref.uiScale", json!({"scale": size}));
+                    ui.close();
+                }
+            }
+        });
+    });
+    rows.note(ui, tr("Relative to your system's display scaling (100% is the system's own size). Document zoom is separate."));
+    // Said in words, not only by the menu's value: the window is too small for the size chosen.
+    if app.ui.ui_scale.limited {
+        let note = trf(
+            "The window is too small for {size}%, so the interface is drawn at {drawn}%. Make the window larger to use {size}%.",
+            &[("size", &crate::ui_scale::percent(chosen as f32)), ("drawn", &crate::ui_scale::percent(app.ui.ui_scale.zoom))],
+        );
+        rows.note(ui, &note);
+    }
 }
 
 /// The language dropdown: each language by its own name; System follows the OS (the browser on

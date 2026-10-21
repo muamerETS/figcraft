@@ -112,6 +112,8 @@ pub fn record_recent(app: &mut FigApp, key: &str) {
     r.truncate(figcraft_engine::MAX_RECENT_ACTIONS);
 }
 
+/// Run a menu, shortcut or palette action by id: actions that need the UI (dialogs, panels, the
+/// clipboard) are handled here, the rest go to the engine.
 pub fn invoke(app: &mut FigApp, id: &str) {
     let docs = app.session.docs.len();
     dispatch(app, id);
@@ -126,6 +128,19 @@ fn dispatch(app: &mut FigApp, id: &str) {
         // Edit ▸ Delete (and the Delete binding) with an interaction open in the Prototype tab
         // removes that interaction, not the layer (#767).
         "edit.delete" if app.ui_context.clone().is_some_and(|ctx| crate::proto_panel::delete_selected_interaction(app, &ctx)) => {}
+        // After a click in the Pages list, while the list is on screen and its file open, with no
+        // layers selected, it deletes the current page (#859).
+        "edit.delete" if crate::layers::pages_have_keyboard(app) && app.session.selection().is_empty() => {
+            if let Ok(page) = app.session.page() {
+                crate::layers::delete_page(app, page);
+            }
+        }
+        // Otherwise the list gives up the keyboard: once Delete has taken layers selected since the
+        // click (Select all, say), a second Delete must not take the page.
+        "edit.delete" if app.ui.pages_focus.is_some() => {
+            app.ui.pages_focus = None;
+            app.run(id, json!({}));
+        }
         "file.open" => app.open_dialog(),
         "plugin.import" => crate::plugins_ui::import_dialog(app),
         "file.import" => app.import_dialog(false),
@@ -256,6 +271,7 @@ fn text_layers_text(doc: &figcraft_doc::Document, ids: &[figcraft_doc::NodeId]) 
     texts.map(|t| t.join("\n")).filter(|t| !t.is_empty())
 }
 
+/// The layers as SVG text for other apps (None when the export fails).
 fn figcraft_svg_export(doc: &figcraft_doc::Document, ids: &[figcraft_doc::NodeId]) -> Option<String> {
     let bytes = figcraft_engine::cmd::file::export_bytes(doc, ids, figcraft_doc::ExportFormat::Svg, 1.0).ok()?;
     String::from_utf8(bytes).ok()

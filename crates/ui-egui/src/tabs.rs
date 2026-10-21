@@ -216,9 +216,14 @@ fn file_tabs(app: &mut FigApp, ui: &mut Ui, t: &Tokens, mut x: f32, max_x: f32, 
     let mut switch = None;
     let mut close = None;
     let mut detach = None;
+    // A tab dragged along the bar moves among the others.
+    let mut dragging = None;
+    let mut dropped = None;
+    let mut visible = Vec::with_capacity(tabs.len());
     for tab in &tabs {
         let r = Rect::from_min_size(pos2(x, cy - TAB_H / 2.0), vec2(tab.width, TAB_H));
-        let resp = ui.interact(r, ui.id().with(("tab", tab.uid)), if several { Sense::click_and_drag() } else { Sense::click() });
+        visible.push((tab.index, r));
+        let resp = ui.interact(r, ui.id().with(("tab", tab.uid)), Sense::click_and_drag());
         let label = match tab.live {
             Some(true) => trf("{name}, in a live session", &[("name", &tab.name)]),
             Some(false) => trf("{name}, online, open only to you", &[("name", &tab.name)]),
@@ -227,12 +232,18 @@ fn file_tabs(app: &mut FigApp, ui: &mut Ui, t: &Tokens, mut x: f32, max_x: f32, 
         let resp = resp.on_hover_text(&label);
         crate::a11y::tab(&resp, &label, tab.active);
         tab_fill(ui, t, r, tab.active, resp.hovered());
-        // Dragged well off the bar: the file moves to a window of its own.
-        if resp.drag_stopped()
+        // Dragged well off the bar: the file moves to a window of its own; let go on the bar: the
+        // tab moves among the others.
+        if (resp.dragged() || resp.drag_stopped())
             && let Some(p) = ui.input(|inp| inp.pointer.latest_pos())
-            && (p.y - cy).abs() > HEIGHT * 2.0
         {
-            detach = Some((tab.index, Some(p)));
+            if !resp.drag_stopped() {
+                dragging = Some((tab.index, p));
+            } else if several && (p.y - cy).abs() > HEIGHT * 2.0 {
+                detach = Some((tab.index, Some(p)));
+            } else if (p.y - cy).abs() <= HEIGHT / 2.0 + 12.0 {
+                dropped = Some((tab.index, p.x));
+            }
         }
         resp.context_menu(|ui| {
             ui.set_width(200.0);
@@ -297,6 +308,14 @@ fn file_tabs(app: &mut FigApp, ui: &mut Ui, t: &Tokens, mut x: f32, max_x: f32, 
         }
         x = r.max.x + gap;
     }
+    if let Some((from, p)) = dragging
+        && (p.y - cy).abs() <= HEIGHT / 2.0 + 12.0
+        && let Some((_, at)) = tab_drop_position(&visible, from, p.x)
+    {
+        let at = at - gap / 2.0;
+        ui.painter().line_segment([pos2(at, cy - TAB_H / 2.0 + 4.0), pos2(at, cy + TAB_H / 2.0 - 4.0)], Stroke::new(3.0, crate::theme::accent()));
+    }
+    let reorder = dropped.and_then(|(from, at)| tab_drop_position(&visible, from, at).map(|(to, _)| (from, to)));
     // Presentations live in their own tab; switching back to the design keeps the player state.
     if presenting {
         let r = Rect::from_min_size(pos2(x, cy - TAB_H / 2.0), vec2(120.0, TAB_H));
@@ -364,10 +383,27 @@ fn file_tabs(app: &mut FigApp, ui: &mut Ui, t: &Tokens, mut x: f32, max_x: f32, 
             app.toast(e);
         }
     }
+    if let Some((from, to)) = reorder
+        && from != to
+    {
+        app.run("file.moveTab", json!({"from": from, "to": to}));
+    }
     if let Some(i) = close {
         close_file(app, &ctx, i);
     }
     br.max.x
+}
+
+/// Final document index and insertion marker for a tab dropped among the visible tabs.
+fn tab_drop_position(visible: &[(usize, Rect)], from: usize, pointer_x: f32) -> Option<(usize, f32)> {
+    let others: Vec<_> = visible.iter().copied().filter(|(index, _)| *index != from).collect();
+    let slot = others.partition_point(|(_, rect)| rect.center().x < pointer_x);
+    if let Some(&(index, rect)) = others.get(slot) {
+        Some((index - usize::from(from < index), rect.min.x))
+    } else {
+        let &(index, rect) = others.last()?;
+        Some((index + usize::from(from > index), rect.max.x))
+    }
 }
 
 /// A tab's background: the panel's colour and edge for the shown tab, a tint under the pointer.
@@ -603,4 +639,19 @@ pub fn resize_edges(ctx: &egui::Context) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::tab_drop_position;
+    use egui::{Rect, pos2};
+
+    #[test]
+    fn drop_position_places_a_tab_between_its_neighbors() {
+        let visible = (0..4)
+            .map(|index| (index, Rect::from_min_max(pos2(index as f32 * 120.0, 0.0), pos2((index + 1) as f32 * 120.0, 40.0))))
+            .collect::<Vec<_>>();
+        assert_eq!(tab_drop_position(&visible, 0, 330.0).map(|(to, _)| to), Some(2));
+        assert_eq!(tab_drop_position(&visible, 3, 30.0).map(|(to, _)| to), Some(0));
+    }
 }

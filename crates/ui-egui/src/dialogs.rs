@@ -13,7 +13,7 @@ use crate::FigApp;
 use crate::export_panel::{export_layers, save_one, suggested_name};
 use crate::i18n::{self, tr, trf, trn};
 use crate::icons::{self, Icon};
-use crate::theme::{Tokens, accent, regular, semibold};
+use crate::theme::{Tokens, regular, semibold};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -309,10 +309,10 @@ pub(crate) fn tab_strip<T: Copy + PartialEq>(ui: &mut egui::Ui, t: &Tokens, tabs
 fn about_body(ui: &mut egui::Ui, t: &Tokens) {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
-        ui.painter().rect_filled(r, CornerRadius::same(8), accent());
-        icons::paint(ui.painter(), r.shrink(10.0), Icon::Logo, Color32::WHITE);
+        crate::theme::paint_app_icon(ui, r);
         ui.vertical(|ui| {
-            ui.label(RichText::new("FigCraft").font(semibold(18.0)));
+            let (wordmark, _) = ui.allocate_exact_size(vec2(130.0, 23.0), Sense::hover());
+            crate::theme::paint_wordmark(ui.painter(), egui::pos2(wordmark.min.x, wordmark.center().y), 18.0, t);
             ui.label(RichText::new(trf("Version {version}", &[("version", &VERSION)])).color(t.text_secondary));
         });
     });
@@ -330,8 +330,12 @@ fn about_body(ui: &mut egui::Ui, t: &Tokens) {
 }
 
 /// Escape closes the topmost simple dialog (one without menus of its own), before the canvas's
-/// shortcuts see it (it doesn't deselect), like a system dialog: from one of its fields too.
+/// shortcuts see it (it doesn't deselect), like a system dialog: from one of its fields too. A menu
+/// open over the dialog (Preferences ▸ Interface size) takes the first Escape and closes alone.
 pub fn keys(app: &mut FigApp, ctx: &Context) {
+    if egui::Popup::is_any_open(ctx) {
+        return;
+    }
     let u = &mut app.ui;
     let open = u.color_profile.is_some()
         || u.menu_input.is_some()

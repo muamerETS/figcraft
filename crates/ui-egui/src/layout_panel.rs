@@ -306,12 +306,45 @@ fn add_slot(ui: &mut Ui, label: &str, tip: &str, width: f32) -> egui::Response {
     resp
 }
 
-/// The padding (across, then down) beside the alignment matrix.
+/// The padding (across, then down) beside the alignment matrix; with Individual padding on, one
+/// field per side in two rows above it.
 fn padding_and_alignment(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
     let col = widgets::col_width(ui.available_width());
     let [pt, pr, pb, pl] = l.padding;
+    let open = ui.data(|d| d.get_temp::<bool>(Id::new("indep_padding"))).unwrap_or(false);
+    let toggle = |ui: &mut Ui| {
+        if icons::button(ui, Icon::IndependentPadding, 24.0, open, tr("Individual padding")).clicked() {
+            ui.data_mut(|d| d.insert_temp(Id::new("indep_padding"), !open));
+        }
+    };
+    if open {
+        // `l` is the selection's common layout, so its sides are common too. `k` indexes
+        // [top, right, bottom, left].
+        let sides = [
+            ("paddingLeft", tr("Left padding"), Icon::PaddingLeft, pl, 3),
+            ("paddingTop", tr("Top padding"), Icon::PaddingTop, pt, 0),
+            ("paddingRight", tr("Right padding"), Icon::PaddingRight, pr, 1),
+            ("paddingBottom", tr("Bottom padding"), Icon::PaddingBottom, pb, 2),
+        ];
+        for (r, pair) in sides.chunks(2).enumerate() {
+            row(ui, crate::widgets::FIELD_ROW, |ui| {
+                for (key, name, icon, v, k) in pair {
+                    let e = crate::variable_ui::number_field(app, ui, ids, key, Id::new(("padding", *k)), Lead::Icon(*icon, name), Some(*v), "", col);
+                    app.field(ids, key, e, |v| json!(v.max(0.0)));
+                }
+                if r == 0 {
+                    toggle(ui);
+                }
+            });
+        }
+    }
     let h = FIELD_H * 2.0 + 8.0;
     block(ui, h + 8.0, 0.0, |ui| {
+        if open {
+            let (grid, _) = ui.allocate_exact_size(vec2(col, h), Sense::hover());
+            align_matrix(app, ui, ids, l, grid);
+            return;
+        }
         ui.vertical(|ui| {
             ui.set_width(col);
             let e = crate::variable_ui::number_field(
@@ -342,6 +375,7 @@ fn padding_and_alignment(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &Auto
         });
         let (grid, _) = ui.allocate_exact_size(vec2(col, h), Sense::hover());
         align_matrix(app, ui, ids, l, grid);
+        ui.vertical(|ui| toggle(ui));
     });
 }
 

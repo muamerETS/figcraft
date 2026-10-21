@@ -12,6 +12,15 @@ use crate::i18n::{tr, tr_noop, trf};
 use crate::icons::{self, Icon};
 use crate::theme::{Tokens, accent, regular};
 
+/// Every mark in the tool rail is painted in a box this size, so they share one optical size and
+/// one stroke width (#737, #738).
+const GLYPH: f32 = 18.0;
+
+/// `GLYPH`'s box centred in `r`.
+fn glyph_rect(r: Rect) -> Rect {
+    Rect::from_center_size(r.center(), vec2(GLYPH, GLYPH))
+}
+
 struct Group {
     key: &'static str,
     /// The flyout button's name for screen readers.
@@ -96,6 +105,8 @@ pub(crate) fn rail_rect(canvas: Rect) -> Rect {
     Rect::from_min_size(pos2(canvas.min.x + 12.0, top), vec2(RAIL_W, h))
 }
 
+/// The main toolbar pill: the tool groups with their flyouts, Resources and Actions, then the
+/// Draw · Design · Prototype · Inspect mode switcher.
 fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
     let rect = pill_at(ui, &mut app.ui.nav, rail_rect(canvas), t);
     let current = app.session.tool.tool;
@@ -161,12 +172,7 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
     } else if resp.hovered() {
         ui.painter().rect_filled(r, CornerRadius::same(8), t.hover);
     }
-    icons::paint(
-        ui.painter(),
-        Rect::from_center_size(r.center(), vec2(18.0, 18.0)),
-        Icon::Actions,
-        if actions_open { Color32::WHITE } else { t.component },
-    );
+    icons::paint(ui.painter(), glyph_rect(r), Icon::Actions, if actions_open { Color32::WHITE } else { t.component });
     if resp.clicked() {
         crate::menus::toggle_palette(&mut app.ui);
     }
@@ -423,7 +429,7 @@ fn tool_cell(ui: &mut Ui, t: &Tokens, r: Rect, id: impl egui::AsIdSalt, icon: Ic
         Color32::TRANSPARENT
     };
     ui.painter().rect_filled(r, CornerRadius::same(8), bg);
-    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(18.0, 18.0)), icon, if active { Color32::WHITE } else { t.icon });
+    icons::paint(ui.painter(), glyph_rect(r), icon, if active { Color32::WHITE } else { t.icon });
     resp
 }
 
@@ -499,4 +505,52 @@ fn flyout_id(key: &str) -> egui::Id {
 /// "Shift+Cmd+K" → "⇧⌘K" on macOS, "Ctrl+Shift+K" elsewhere.
 pub fn pretty_shortcut(s: &str) -> String {
     figcraft_engine::keymap::display(s, crate::shortcuts::platform())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::Shape;
+
+    /// The stroke widths `icon` paints with in a `size` box at `ppp` pixels per point.
+    fn widths(ppp: f32, icon: Icon, size: f32) -> Vec<f32> {
+        let ctx = egui::Context::default();
+        let input = || {
+            let mut i = egui::RawInput::default();
+            i.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
+            i
+        };
+        ctx.run_ui(input(), |_| {}).textures_delta.clear();
+        let mut out =
+            ctx.run_ui(input(), |ui| icons::paint(ui.painter(), Rect::from_center_size(pos2(50.0, 50.0), vec2(size, size)), icon, Color32::WHITE));
+        out.textures_delta.clear();
+        assert_eq!(ctx.pixels_per_point(), ppp);
+        let mut w: Vec<f32> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                Shape::LineSegment { stroke, .. } => Some(stroke.width),
+                Shape::Path(p) => Some(p.stroke.width),
+                Shape::Rect(r) => Some(r.stroke.width),
+                _ => None,
+            })
+            .filter(|w| *w > 0.0)
+            .collect();
+        w.dedup();
+        w
+    }
+
+    /// The rail's marks draw with one stroke width (#737), and the mode switcher's marks are the
+    /// tool marks' size (#738).
+    #[test]
+    fn toolbar_marks_share_one_stroke_width() {
+        for ppp in [1.0, 1.5, 2.0] {
+            let mark = widths(ppp, Icon::Rectangle, GLYPH);
+            assert_eq!(mark.len(), 1, "one width at {ppp}×: {mark:?}");
+            assert_eq!(widths(ppp, Icon::Code, GLYPH), mark, "mode mark at {ppp}×");
+            for icon in [Icon::Frame, Icon::Text] {
+                assert_eq!(widths(ppp, icon, GLYPH), mark, "{icon:?} at {ppp}×");
+            }
+        }
+    }
 }
