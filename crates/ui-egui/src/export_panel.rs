@@ -63,7 +63,7 @@ pub fn section(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId]) {
 /// One export setting: size (typed or picked; images only, SVG and PDF are vector), suffix,
 /// format, advanced options and remove; a PDF's print settings under it.
 fn setting_row(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], i: usize, e: &ExportSetting) {
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         // Tighter spacing so the advanced options and remove buttons fit beside the fields.
         ui.spacing_mut().item_spacing.x = 4.0;
         let (format_w, button, gap) = (54.0, 22.0, ui.spacing().item_spacing.x);

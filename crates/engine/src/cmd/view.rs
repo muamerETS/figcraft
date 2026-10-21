@@ -364,6 +364,14 @@ pub fn specs() -> Vec<CommandSpec> {
             s.prefs.theme = "system".into();
             ok()
         }),
+        spec!("view.paletteModern", "Modern interface colours", "{}", false, |s, _| {
+            s.prefs.palette = "modern".into();
+            ok()
+        }),
+        spec!("view.paletteClassic", "Classic interface colours", "{}", false, |s, _| {
+            s.prefs.palette = "classic".into();
+            ok()
+        }),
         spec!("pref.keepTool", "Keep tool selected after use", "{on?}", false, |s, p| pref(s, p, |x| &mut x.keep_tool)),
         spec!("pref.highlightHover", "Highlight layers on hover", "{on?}", false, |s, p| pref(s, p, |x| &mut x.highlight_on_hover)),
         spec!("pref.renameDuplicates", "Rename duplicated layers", "{on?}", false, |s, p| pref(s, p, |x| &mut x.rename_duplicates)),

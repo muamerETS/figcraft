@@ -140,6 +140,7 @@ fn a_layer_cant_drop_into_its_own_child_and_escape_cancels() {
 #[test]
 fn dropping_layers_on_another_page_moves_them_there() {
     let (mut u, _frame, _child, rect) = setup();
+    u.app.ui.pages_open = true;
     let p1 = u.app.session.page().unwrap();
     let p2 = id(u.app.session.execute("page.add", &json!({})).unwrap());
     u.app.session.execute("page.select", &json!({"id": p1})).unwrap();

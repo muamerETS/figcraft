@@ -21,10 +21,11 @@ use crate::right::menu_item;
 use crate::theme::{Tokens, regular, semibold};
 use crate::widgets::{self, FieldEdit, Lead};
 
-const SIDEBAR_W: f32 = 200.0;
+const SIDEBAR_W: f32 = 220.0;
 const NAME_W: f32 = 240.0;
 const MODE_W: f32 = 200.0;
-const ROW_H: f32 = 36.0;
+const ROW_H: f32 = 42.0;
+const HEADER_H: f32 = 56.0;
 const TYPES: [VariableType; 4] = [VariableType::Color, VariableType::Number, VariableType::String, VariableType::Boolean];
 
 /// What's being renamed inline.
@@ -145,7 +146,7 @@ pub fn show(app: &mut FigApp, ctx: &Context) {
     st.collection = coll.map(|c| c.id.clone());
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
-    let size = vec2(880.0_f32.min(screen.width() - 80.0).max(480.0), 480.0_f32.min(screen.height() - 120.0).max(240.0));
+    let size = vec2(940.0_f32.min(screen.width() - 80.0).max(520.0), 560.0_f32.min(screen.height() - 120.0).max(260.0));
     let mut open = true;
     egui::Window::new(tr("Local variables"))
         .id(Id::new("variables_window"))
@@ -160,9 +161,13 @@ pub fn show(app: &mut FigApp, ctx: &Context) {
             ui.set_min_size(size);
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             header(app, ui, &mut open);
-            let h = (size.y - 44.0).max(160.0);
+            let h = (size.y - HEADER_H).max(160.0);
             let top_down = egui::Layout::top_down(egui::Align::Min);
             ui.horizontal_top(|ui| {
+                // The collections on a quieter panel of their own, rounded into the window's corner.
+                let side = Rect::from_min_size(ui.cursor().min, vec2(SIDEBAR_W, h));
+                let corner = CornerRadius { nw: 0, ne: 0, sw: 14, se: 0 };
+                ui.painter().rect_filled(side, corner, t.card);
                 ui.allocate_ui_with_layout(vec2(SIDEBAR_W, h), top_down, |ui| sidebar(app, ui, &views, &doc.variables, &mut st));
                 let (line, _) = ui.allocate_exact_size(vec2(1.0, h), Sense::hover());
                 ui.painter().rect_filled(line, CornerRadius::ZERO, t.border);
@@ -175,11 +180,12 @@ pub fn show(app: &mut FigApp, ctx: &Context) {
 
 fn header(app: &mut FigApp, ui: &mut Ui, open: &mut bool) {
     let t = Tokens::get(ui.ctx());
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::hover());
     // Import and export, left of Close.
-    let bar = Rect::from_min_max(pos2(r.max.x - 280.0, r.min.y + 10.0), pos2(r.max.x - 40.0, r.max.y - 10.0));
+    let bar = Rect::from_min_max(pos2(r.max.x - 300.0, r.min.y + 13.0), pos2(r.max.x - 52.0, r.max.y - 13.0));
     let mut bar = ui.new_child(UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)));
-    let export = widgets::button(&mut bar, tr("Export…"), false, true);
+    bar.spacing_mut().item_spacing.x = 8.0;
+    let export = widgets::button(&mut bar, tr("Export"), false, true);
     crate::right::menu_popup(&export).show(|ui| {
         for (label, format) in [(tr("Variables JSON…"), "json"), (tr("CSS custom properties…"), "css")] {
             if menu_item(ui, label, "") {
@@ -188,14 +194,16 @@ fn header(app: &mut FigApp, ui: &mut Ui, open: &mut bool) {
             }
         }
     });
-    if widgets::button(&mut bar, tr("Import…"), false, true).on_hover_text(tr("Add or update collections from a variables JSON")).clicked() {
+    if widgets::button(&mut bar, tr("Import"), false, true).on_hover_text(tr("Add or update collections from a variables JSON")).clicked() {
         import_dialog(app);
     }
-    ui.painter().text(pos2(r.min.x + 16.0, r.center().y), Align2::LEFT_CENTER, tr("Local variables"), semibold(13.0), t.text);
+    let tile = Rect::from_min_size(pos2(r.min.x + 18.0, r.center().y - 16.0), vec2(32.0, 32.0));
+    widgets::icon_tile(ui.painter(), tile, Icon::Variable, t.accent, t.accent_text, 16.0);
+    ui.painter().text(pos2(tile.max.x + 12.0, r.center().y), Align2::LEFT_CENTER, tr("Local variables"), semibold(14.0), t.text);
     if widgets::icon_button_at(
         ui,
         Id::new("vars_close"),
-        Rect::from_center_size(pos2(r.max.x - 22.0, r.center().y), vec2(24.0, 24.0)),
+        Rect::from_center_size(pos2(r.max.x - 28.0, r.center().y), vec2(28.0, 28.0)),
         Icon::Close,
         tr("Close"),
     ) {
@@ -283,12 +291,12 @@ fn unique(base: &str, taken: impl Fn(&str) -> bool) -> String {
 
 fn sidebar(app: &mut FigApp, ui: &mut Ui, views: &[View], local: &Variables, st: &mut Editor) {
     let t = Tokens::get(ui.ctx());
-    let (hr, _) = ui.allocate_exact_size(vec2(SIDEBAR_W, 40.0), Sense::hover());
-    ui.painter().text(pos2(hr.min.x + 16.0, hr.center().y), Align2::LEFT_CENTER, tr("Collections"), semibold(11.0), t.text_secondary);
+    let (hr, _) = ui.allocate_exact_size(vec2(SIDEBAR_W, 48.0), Sense::hover());
+    ui.painter().text(pos2(hr.min.x + 20.0, hr.center().y), Align2::LEFT_CENTER, tr("Collections").to_uppercase(), semibold(10.0), t.text_secondary);
     if widgets::icon_button_at(
         ui,
         Id::new("vars_add_coll"),
-        Rect::from_center_size(pos2(hr.max.x - 20.0, hr.center().y), vec2(24.0, 24.0)),
+        Rect::from_center_size(pos2(hr.max.x - 24.0, hr.center().y), vec2(24.0, 24.0)),
         Icon::Plus,
         tr("Create collection"),
     ) {
@@ -322,25 +330,37 @@ fn library_title(ui: &mut Ui, name: &str) {
 /// One collection in the sidebar (with its groups while selected).
 fn collection_row(app: &mut FigApp, ui: &mut Ui, view: &View, c: &Collection, st: &mut Editor) {
     let t = Tokens::get(ui.ctx());
-    let (r, resp) = ui.allocate_exact_size(vec2(SIDEBAR_W, 30.0), Sense::click());
-    let r = r.shrink2(vec2(8.0, 1.0));
+    let (r, resp) = ui.allocate_exact_size(vec2(SIDEBAR_W, 36.0), Sense::click());
+    let r = r.shrink2(vec2(10.0, 2.0));
     let selected = view.is(st.library.as_deref()) && st.collection.as_deref() == Some(c.id.as_str());
     if selected {
-        ui.painter().rect_filled(r, CornerRadius::same(5), t.selected_row);
+        ui.painter().rect_filled(r, CornerRadius::same(7), t.selected_row);
+        let bar = Rect::from_min_size(pos2(r.min.x, r.center().y - 8.0), vec2(3.0, 16.0));
+        ui.painter().rect_filled(bar, CornerRadius::same(2), t.accent);
     } else if resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
+        ui.painter().rect_filled(r, CornerRadius::same(7), t.hover);
     }
     let target = Rename::Collection(c.id.clone());
+    // How many variables it holds, in a pill at the row's end.
     let count = view.in_collection(&c.id).count();
-    ui.painter().text(pos2(r.max.x - 8.0, r.center().y), Align2::RIGHT_CENTER, count.to_string(), regular(11.0), t.text_tertiary);
-    let indent = if view.editable() { 8.0 } else { 26.0 };
-    let name_r = Rect::from_min_max(pos2(r.min.x + indent, r.min.y + 4.0), pos2(r.max.x - 32.0, r.max.y - 4.0));
+    let g = ui.painter().layout_no_wrap(count.to_string(), semibold(10.5), t.text_secondary);
+    let pill = Rect::from_min_size(pos2(r.max.x - 8.0 - g.size().x - 12.0, r.center().y - 9.0), vec2(g.size().x + 12.0, 18.0));
+    ui.painter().rect_filled(pill, CornerRadius::same(7), if selected { t.panel } else { t.field });
+    ui.painter().galley(pill.center() - g.size() / 2.0, g, t.text_secondary);
+    let indent = if view.editable() { 32.0 } else { 44.0 };
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(pos2(r.min.x + indent - 14.0, r.center().y), vec2(14.0, 14.0)),
+        Icon::Variable,
+        if selected { t.accent_text } else { t.icon_secondary },
+    );
+    let name_r = Rect::from_min_max(pos2(r.min.x + indent, r.min.y + 4.0), pos2(pill.min.x - 6.0, r.max.y - 4.0));
     if view.editable() && st.rename.as_ref() == Some(&target) {
         if let Some(name) = rename_field(ui, st, &target, &c.name, name_r, regular(11.0)) {
             app.run("variable.renameCollection", json!({"collection": c.id, "name": name}));
         }
     } else {
-        let font = if selected { semibold(11.0) } else { regular(11.0) };
+        let font = if selected { semibold(12.0) } else { regular(12.0) };
         ui.painter().with_clip_rect(name_r).text(name_r.left_center(), Align2::LEFT_CENTER, &c.name, font, t.text);
     }
     if resp.clicked() {
@@ -406,16 +426,16 @@ fn group_rows(app: &mut FigApp, ui: &mut Ui, view: &View, coll: &Collection, st:
     }
     let rows = std::iter::once(None).chain(list.iter().map(Some));
     for g in rows {
-        let (r, resp) = ui.allocate_exact_size(vec2(SIDEBAR_W, 26.0), Sense::click());
-        let r = r.shrink2(vec2(8.0, 0.0));
+        let (r, resp) = ui.allocate_exact_size(vec2(SIDEBAR_W, 30.0), Sense::click());
+        let r = r.shrink2(vec2(10.0, 1.0));
         let on = st.group.as_ref() == g;
         if on {
-            ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
+            ui.painter().rect_filled(r, CornerRadius::same(6), t.hover);
         } else if resp.hovered() {
-            ui.painter().rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0, t.border), StrokeKind::Inside);
+            ui.painter().rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, t.border), StrokeKind::Inside);
         }
         let depth = g.map_or(0, |g| g.matches('/').count());
-        let x = r.min.x + 20.0 + depth as f32 * 12.0;
+        let x = r.min.x + 32.0 + depth as f32 * 12.0;
         let label = g.map_or(tr("All variables"), |g| g.rsplit('/').next().unwrap_or(g));
         let count = names.iter().filter(|n| g.is_none_or(|g| n.starts_with(&format!("{g}/")))).count();
         ui.painter().text(pos2(r.max.x - 8.0, r.center().y), Align2::RIGHT_CENTER, count.to_string(), regular(10.0), t.text_tertiary);
@@ -513,37 +533,42 @@ fn table(app: &mut FigApp, ui: &mut Ui, view: &View, st: &mut Editor) {
         return;
     }
     let Some(coll) = st.collection.as_deref().and_then(|c| view.collection(c)) else {
-        ui.add_space(24.0);
-        ui.horizontal(|ui| {
-            ui.add_space(24.0);
-            ui.vertical(|ui| {
-                widgets::label(
-                    ui,
-                    tr("Variables store reusable values (colours, numbers, strings, booleans) with modes such as Light and Dark."),
-                    t.text_secondary,
-                );
-                ui.add_space(12.0);
-                if widgets::button(ui, tr("Create collection"), true, true).clicked() {
-                    create_collection(app, view.vars, st);
-                }
-            });
-        });
+        // Nothing yet: what variables are for, and the way to start, in the middle.
+        let area = Rect::from_min_size(ui.cursor().min, ui.available_size());
+        let mid = area.center() - vec2(0.0, 30.0);
+        let tile = Rect::from_center_size(mid - vec2(0.0, 52.0), vec2(56.0, 56.0));
+        widgets::icon_tile(ui.painter(), tile, Icon::Variable, t.accent, t.accent_text, 24.0);
+        let text = tr("Variables store reusable values (colours, numbers, strings, booleans) with modes such as Light and Dark.");
+        let galley = ui.painter().layout(text.to_string(), regular(12.5), t.text_secondary, 360.0_f32.min(area.width() - 48.0));
+        let text_top = tile.max.y + 18.0;
+        let galley_size = galley.size();
+        ui.painter().galley(pos2(mid.x - galley_size.x / 2.0, text_top), galley, t.text_secondary);
+        let label = tr("Create collection");
+        let bw = ui.painter().layout_no_wrap(label.to_string(), semibold(11.5), t.text).size().x + 24.0;
+        let button = Rect::from_min_size(pos2(mid.x - bw / 2.0, text_top + galley_size.y + 18.0), vec2(bw, widgets::FIELD_H));
+        let mut child = ui.new_child(UiBuilder::new().max_rect(button));
+        if widgets::button(&mut child, label, true, true).clicked() {
+            create_collection(app, view.vars, st);
+        }
         return;
     };
     // Search.
-    let (sr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
-    let field = Rect::from_min_size(pos2(sr.min.x + 16.0, sr.center().y - 12.0), vec2(220.0, 24.0));
-    ui.painter().rect_filled(field, CornerRadius::same(5), t.field);
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(field.min.x + 13.0, field.center().y), vec2(12.0, 12.0)), Icon::Search, t.icon_secondary);
-    let mut child = ui.new_child(
-        UiBuilder::new().max_rect(Rect::from_min_max(pos2(field.min.x + 24.0, field.min.y + 4.0), pos2(field.max.x - 4.0, field.max.y - 4.0))),
-    );
+    let (sr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), Sense::hover());
+    let field = Rect::from_min_size(pos2(sr.min.x + 20.0, sr.center().y - 15.0), vec2(260.0, 30.0));
+    ui.painter().rect_filled(field, CornerRadius::same(widgets::FIELD_R), t.field);
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(field.min.x + 16.0, field.center().y), vec2(14.0, 14.0)), Icon::Search, t.icon_secondary);
+    // One line of text centred on the field, level with the icon.
+    let line_h = ui.painter().layout_no_wrap("Ag".into(), regular(12.0), t.text).size().y;
+    let text_r =
+        Rect::from_min_max(pos2(field.min.x + 30.0, field.center().y - line_h / 2.0), pos2(field.max.x - 8.0, field.center().y + line_h / 2.0));
+    let mut child = ui.new_child(UiBuilder::new().max_rect(text_r));
     let r = child.add(
         egui::TextEdit::singleline(&mut st.query)
             .frame(egui::Frame::NONE)
+            .margin(egui::Margin::ZERO)
             .hint_text(tr("Search"))
-            .font(regular(11.0))
-            .vertical_align(egui::Align::Center),
+            .font(regular(12.0))
+            .desired_width(text_r.width()),
     );
     crate::widgets::select_all_on_focus(ui, &r, &st.query);
     let note = Rect::from_min_max(pos2(field.max.x + 16.0, sr.min.y + 8.0), pos2(sr.max.x - 16.0, sr.max.y - 8.0));
@@ -578,8 +603,8 @@ fn table(app: &mut FigApp, ui: &mut Ui, view: &View, st: &mut Editor) {
             if group != Some(g) {
                 group = Some(g);
                 if !g.is_empty() {
-                    let (r, _) = ui.allocate_exact_size(vec2(width, 28.0), Sense::hover());
-                    ui.painter().text(pos2(r.min.x + 16.0, r.center().y + 2.0), Align2::LEFT_CENTER, g, semibold(11.0), t.text_secondary);
+                    let (r, _) = ui.allocate_exact_size(vec2(width, 34.0), Sense::hover());
+                    ui.painter().text(pos2(r.min.x + 20.0, r.center().y + 4.0), Align2::LEFT_CENTER, g, semibold(11.5), t.text_secondary);
                 }
             }
             var_row(app, ui, view, coll, v, st, width);
@@ -598,8 +623,9 @@ fn header_row(app: &mut FigApp, ui: &mut Ui, view: &View, coll: &Collection, st:
     let t = Tokens::get(ui.ctx());
     // An extended collection has the modes of the one it extends.
     let editable = view.editable() && coll.extends.is_none();
-    let (r, _) = ui.allocate_exact_size(vec2(width, 32.0), Sense::hover());
-    ui.painter().text(pos2(r.min.x + 16.0, r.center().y), Align2::LEFT_CENTER, tr("Name"), regular(11.0), t.text_secondary);
+    let (r, _) = ui.allocate_exact_size(vec2(width, 36.0), Sense::hover());
+    ui.painter().rect_filled(r, CornerRadius::ZERO, t.card);
+    ui.painter().text(pos2(r.min.x + 20.0, r.center().y), Align2::LEFT_CENTER, tr("Name"), semibold(11.0), t.text_secondary);
     for (i, m) in coll.modes.iter().enumerate() {
         let x = r.min.x + NAME_W + i as f32 * MODE_W;
         let cell = Rect::from_min_max(pos2(x + 4.0, r.min.y + 4.0), pos2(x + MODE_W - 8.0, r.max.y - 4.0));
@@ -612,12 +638,12 @@ fn header_row(app: &mut FigApp, ui: &mut Ui, view: &View, coll: &Collection, st:
         }
         let name_pos = pos2(cell.min.x + 4.0, cell.center().y);
         if !editable {
-            ui.painter().with_clip_rect(cell).text(name_pos, Align2::LEFT_CENTER, &m.name, regular(11.0), t.text_secondary);
+            ui.painter().with_clip_rect(cell).text(name_pos, Align2::LEFT_CENTER, &m.name, semibold(11.0), t.text_secondary);
             continue;
         }
         let resp = ui.interact(cell, Id::new(("vars_mode", &m.id)), Sense::click());
         if resp.hovered() {
-            ui.painter().rect_filled(cell, CornerRadius::same(4), t.hover);
+            ui.painter().rect_filled(cell, CornerRadius::same(6), t.hover);
         }
         ui.painter().with_clip_rect(cell).text(name_pos, Align2::LEFT_CENTER, &m.name, regular(11.0), t.text_secondary);
         if resp.double_clicked() {
@@ -680,8 +706,8 @@ fn var_row(app: &mut FigApp, ui: &mut Ui, view: &View, coll: &Collection, v: &Va
     if resp.hovered() || (editable && st.details.as_deref() == Some(v.id.as_str())) {
         ui.painter().rect_filled(r, CornerRadius::ZERO, t.hover);
     }
-    kind_glyph(ui, view.vars, v, coll, Rect::from_center_size(pos2(r.min.x + 24.0, r.center().y), vec2(14.0, 14.0)));
-    let name_r = Rect::from_min_max(pos2(r.min.x + 40.0, r.min.y + 8.0), pos2(r.min.x + NAME_W - 8.0, r.max.y - 8.0));
+    kind_glyph(ui, view.vars, v, coll, Rect::from_center_size(pos2(r.min.x + 28.0, r.center().y), vec2(16.0, 16.0)));
+    let name_r = Rect::from_min_max(pos2(r.min.x + 46.0, r.min.y + 10.0), pos2(r.min.x + NAME_W - 8.0, r.max.y - 10.0));
     let target = Rename::Variable(v.id.clone());
     // An inherited variable is named (and deleted) in the collection it extends.
     let inherited = v.extends.is_some();
@@ -692,11 +718,11 @@ fn var_row(app: &mut FigApp, ui: &mut Ui, view: &View, coll: &Collection, v: &Va
     } else {
         // Grouped names show their last part under the group's header.
         let short = v.name.rsplit('/').next().unwrap_or(&v.name);
-        ui.painter().with_clip_rect(name_r).text(name_r.left_center(), Align2::LEFT_CENTER, short, regular(11.0), t.text);
+        ui.painter().with_clip_rect(name_r).text(name_r.left_center(), Align2::LEFT_CENTER, short, regular(12.0), t.text);
     }
     for (i, m) in coll.modes.iter().enumerate() {
         let x = r.min.x + NAME_W + i as f32 * MODE_W;
-        let cell = Rect::from_min_max(pos2(x + 4.0, r.center().y - 12.0), pos2(x + MODE_W - 8.0, r.center().y + 12.0));
+        let cell = Rect::from_min_max(pos2(x + 4.0, r.center().y - 14.0), pos2(x + MODE_W - 8.0, r.center().y + 14.0));
         value_cell(app, ui, view, v, coll, &m.id, cell);
     }
     if editable {
@@ -726,7 +752,7 @@ fn var_row(app: &mut FigApp, ui: &mut Ui, view: &View, coll: &Collection, v: &Va
             }
         });
     }
-    ui.painter().line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, t.border));
+    ui.painter().line_segment([r.left_bottom() + vec2(20.0, 0.0), r.right_bottom()], Stroke::new(1.0, t.border.gamma_multiply(0.7)));
 }
 
 /// The type marker before a variable's name: its colour (default mode), or a type glyph.
@@ -795,11 +821,11 @@ fn value_cell(app: &mut FigApp, ui: &mut Ui, view: &View, v: &Variable, coll: &C
         let full = view.vars.get(target).map(|x| x.name.as_str()).unwrap_or(tr("Missing variable"));
         let resp = ui.interact(body, id.with("alias"), if editable { Sense::click() } else { Sense::hover() });
         let resp = if editable { resp.on_hover_text(tr("Change alias")) } else { resp };
-        ui.painter().rect_filled(body, CornerRadius::same(5), t.field);
-        let chip = body.shrink2(vec2(3.0, 3.0));
-        ui.painter().rect_filled(chip, CornerRadius::same(4), t.hover);
+        ui.painter().rect_filled(body, CornerRadius::same(widgets::FIELD_R), t.field);
+        let chip = body.shrink2(vec2(4.0, 4.0));
+        ui.painter().rect_filled(chip, CornerRadius::same(6), t.hover);
         let border = if editable && resp.hovered() { t.border_strong } else { t.border };
-        ui.painter().rect_stroke(chip, CornerRadius::same(4), Stroke::new(1.0, border), StrokeKind::Inside);
+        ui.painter().rect_stroke(chip, CornerRadius::same(6), Stroke::new(1.0, border), StrokeKind::Inside);
         icons::paint(
             ui.painter(),
             Rect::from_center_size(pos2(chip.min.x + 11.0, chip.center().y), vec2(12.0, 12.0)),
@@ -826,14 +852,14 @@ fn value_cell(app: &mut FigApp, ui: &mut Ui, view: &View, v: &Variable, coll: &C
     }
     match val {
         VariableValue::Color(c) => {
-            ui.painter().rect_filled(body, CornerRadius::same(5), t.field);
-            let sw = Rect::from_center_size(pos2(body.min.x + 13.0, body.center().y), vec2(14.0, 14.0));
+            ui.painter().rect_filled(body, CornerRadius::same(widgets::FIELD_R), t.field);
+            let sw = Rect::from_center_size(pos2(body.min.x + 16.0, body.center().y), vec2(16.0, 16.0));
             widgets::paint_swatch(ui.painter(), sw, &figcraft_color::Paint::solid(*c));
             if ui.interact(sw.expand(3.0), id.with("swatch"), Sense::click()).tip(tr("Edit colour")).clicked() {
                 app.ui.picker = Some(PickerTarget::Variable { id: v.id.clone(), mode: mode.to_string() });
             }
             let hex_r = Rect::from_min_max(pos2(sw.max.x + 8.0, body.min.y + 4.0), pos2(body.max.x - 44.0, body.max.y - 4.0));
-            if let Some(h) = widgets::text_field_inline(ui, id.with("hex"), &c.to_hex(), hex_r, regular(11.0))
+            if let Some(h) = widgets::text_field_inline(ui, id.with("hex"), &c.to_hex(), hex_r, semibold(11.5))
                 && let Some(nc) = figcraft_color::Color::from_hex_or_name(&h)
             {
                 // Six digits (or a colour name) keep the alpha; eight digits set it.
@@ -882,10 +908,10 @@ fn alpha_text(ui: &Ui, c: &figcraft_color::Color, body: Rect) {
 /// A value that only shows (a library's): its swatch and hex for colours, else its text.
 fn read_only_value(ui: &Ui, val: &VariableValue, body: Rect) {
     let t = Tokens::get(ui.ctx());
-    ui.painter().rect_filled(body, CornerRadius::same(5), t.field);
-    let mut x = body.min.x + 8.0;
+    ui.painter().rect_filled(body, CornerRadius::same(widgets::FIELD_R), t.field);
+    let mut x = body.min.x + 10.0;
     if let VariableValue::Color(c) = val {
-        let sw = Rect::from_center_size(pos2(body.min.x + 13.0, body.center().y), vec2(14.0, 14.0));
+        let sw = Rect::from_center_size(pos2(body.min.x + 16.0, body.center().y), vec2(16.0, 16.0));
         widgets::paint_swatch(ui.painter(), sw, &figcraft_color::Paint::solid(*c));
         x = sw.max.x + 8.0;
         alpha_text(ui, c, body);
@@ -899,9 +925,9 @@ fn read_only_value(ui: &Ui, val: &VariableValue, body: Rect) {
 }
 
 fn create_row(app: &mut FigApp, ui: &mut Ui, view: &View, coll: &Collection, st: &mut Editor) {
-    ui.add_space(8.0);
+    ui.add_space(12.0);
     ui.horizontal(|ui| {
-        ui.add_space(12.0);
+        ui.add_space(20.0);
         let resp = widgets::button(ui, tr("+ Create variable"), false, true);
         crate::right::menu_popup(&resp).show(|ui| {
             for kind in TYPES {

@@ -10,7 +10,7 @@ use crate::FigApp;
 use crate::a11y::{self, Nav, Region, Tip};
 use crate::i18n::{tr, tr_noop, trf};
 use crate::icons::{self, Icon};
-use crate::theme::{ACCENT, Tokens, regular};
+use crate::theme::{Tokens, accent, regular};
 
 struct Group {
     key: &'static str,
@@ -157,9 +157,9 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
     app.ui.actions_rect = Some(r);
     let actions_open = app.ui.palette.is_some();
     if actions_open {
-        ui.painter().rect_filled(r, CornerRadius::same(10), ACCENT);
+        ui.painter().rect_filled(r, CornerRadius::same(8), accent());
     } else if resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(10), t.hover);
+        ui.painter().rect_filled(r, CornerRadius::same(8), t.hover);
     }
     icons::paint(
         ui.painter(),
@@ -190,7 +190,7 @@ fn zoom_island(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
         *x += w;
         let resp = ui.interact(r, ui.id().with(("zoom_island", id)), Sense::click());
         if resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(8), t.hover);
+            ui.painter().rect_filled(r, CornerRadius::same(6), t.hover);
         }
         resp
     };
@@ -239,7 +239,7 @@ fn status_chip(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
     }
     let resp = ui.interact(rect, ui.id().with("status_chip"), Sense::hover());
     a11y::status(&resp, label, "");
-    let radius = CornerRadius::same(15);
+    let radius = CornerRadius::same(11);
     ui.painter().rect_filled(rect, radius, t.panel);
     ui.painter().rect_stroke(rect, radius, Stroke::new(1.0, t.border), StrokeKind::Inside);
     ui.painter().circle_filled(pos2(rect.min.x + 16.0, rect.center().y), 4.0, dot);
@@ -278,7 +278,7 @@ fn view_only_toolbar(app: &mut FigApp, ui: &mut Ui, why: &'static str) {
     let badge = Rect::from_min_size(pos2(x + 12.0, cy - 13.0), vec2(badge_w, 26.0));
     let resp = ui.interact(badge, ui.id().with("view_only"), Sense::hover()).on_hover_text(why);
     a11y::status(&resp, label, why);
-    ui.painter().rect_filled(badge, CornerRadius::same(13), t.field);
+    ui.painter().rect_filled(badge, CornerRadius::same(10), t.field);
     icons::paint(ui.painter(), Rect::from_center_size(pos2(badge.min.x + 12.0 + 7.0, cy), vec2(14.0, 14.0)), Icon::Eye, t.icon_secondary);
     ui.painter().galley(pos2(badge.min.x + 12.0 + 14.0 + 6.0, cy - text.size().y / 2.0), text, t.text);
 }
@@ -382,9 +382,7 @@ fn pill(ui: &Ui, nav: &mut Nav, canvas: Rect, width: f32, t: &Tokens) -> Rect {
 fn float_at(ui: &Ui, rect: Rect, t: &Tokens) {
     ui.interact(rect, ui.id().with(("float", rect.min.x as i32, rect.min.y as i32)), Sense::CLICK | Sense::DRAG);
     let painter = ui.painter();
-    for (i, a) in [(6.0, 10u8), (3.0, 16), (1.0, 24)] {
-        painter.rect_filled(rect.expand(i).translate(vec2(0.0, i * 0.5)), CornerRadius::same((PILL_R + i) as u8), Color32::from_black_alpha(a));
-    }
+    crate::widgets::soft_shadow(painter, rect, PILL_R as u8);
     painter.rect_filled(rect, CornerRadius::same(PILL_R as u8), t.panel);
     painter.rect_stroke(rect, CornerRadius::same(PILL_R as u8), Stroke::new(1.0, t.border), StrokeKind::Inside);
 }
@@ -398,9 +396,7 @@ fn pill_at(ui: &Ui, nav: &mut Nav, rect: Rect, t: &Tokens) -> Rect {
     a11y::area(nav, Region::Toolbar, rect);
     a11y::container_bounds(ui, rect);
     let painter = ui.painter();
-    for (i, a) in [(6.0, 10u8), (3.0, 16), (1.0, 24)] {
-        painter.rect_filled(rect.expand(i).translate(vec2(0.0, i * 0.5)), CornerRadius::same((PILL_R + i) as u8), Color32::from_black_alpha(a));
-    }
+    crate::widgets::soft_shadow(painter, rect, PILL_R as u8);
     painter.rect_filled(rect, CornerRadius::same(PILL_R as u8), t.panel);
     painter.rect_stroke(rect, CornerRadius::same(PILL_R as u8), Stroke::new(1.0, t.border), StrokeKind::Inside);
     rect
@@ -420,13 +416,13 @@ fn tool_cell(ui: &mut Ui, t: &Tokens, r: Rect, id: impl egui::AsIdSalt, icon: Ic
     });
     a11y::toggle(&resp, tip, active);
     let bg = if active {
-        ACCENT
+        accent()
     } else if resp.hovered() {
         t.hover
     } else {
         Color32::TRANSPARENT
     };
-    ui.painter().rect_filled(r, CornerRadius::same(10), bg);
+    ui.painter().rect_filled(r, CornerRadius::same(8), bg);
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(18.0, 18.0)), icon, if active { Color32::WHITE } else { t.icon });
     resp
 }
@@ -443,7 +439,7 @@ fn done_button(ui: &mut Ui, t: &Tokens, x: f32, cy: f32, tip: &str) -> bool {
     divider(ui, t, x, cy);
     let done = Rect::from_min_size(pos2(x + 12.0, cy - 14.0), vec2(DONE_W, 28.0));
     let resp = ui.interact(done, ui.id().with("tool_done"), Sense::click()).tip(tip);
-    ui.painter().rect_filled(done, CornerRadius::same(6), if resp.hovered() { t.accent_hover } else { ACCENT });
+    ui.painter().rect_filled(done, CornerRadius::same(6), if resp.hovered() { t.accent_hover } else { accent() });
     ui.painter().text(done.center(), Align2::CENTER_CENTER, tr("Done"), crate::theme::semibold(11.5), Color32::WHITE);
     resp.clicked()
 }
@@ -460,7 +456,7 @@ fn flyout(app: &mut FigApp, ui: &mut Ui, g: &Group, top_left: egui::Pos2) {
     let mut chosen = None;
     egui::Area::new(flyout_id(g.key)).fixed_pos(at).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
-        ui.painter().rect_filled(rect, CornerRadius::same(13), t.menu);
+        ui.painter().rect_filled(rect, CornerRadius::same(10), t.menu);
         let mut y = rect.min.y + 8.0;
         for (tid, icon) in g.tools {
             let r = Rect::from_min_size(pos2(rect.min.x + 8.0, y), vec2(w - 16.0, item_h));
@@ -469,7 +465,7 @@ fn flyout(app: &mut FigApp, ui: &mut Ui, g: &Group, top_left: egui::Pos2) {
             // The keyboard's item is highlighted like the hovered one.
             a11y::own_focus(&resp);
             if resp.hovered() || resp.has_focus() {
-                ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_hover);
+                ui.painter().rect_filled(r, CornerRadius::same(6), t.menu_hover);
             }
             if *tid == app.session.tool.tool {
                 icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 10.0, r.center().y), vec2(12.0, 12.0)), Icon::Check, t.menu_text);

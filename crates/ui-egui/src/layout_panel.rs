@@ -13,7 +13,7 @@ use crate::a11y::Tip;
 use crate::i18n::{tr, tr_noop};
 use crate::icons::{self, Icon};
 use crate::right::{block, common, menu_item, menu_popup, row};
-use crate::theme::{ACCENT, Tokens, regular};
+use crate::theme::{Tokens, accent, regular};
 use crate::widgets::{self, FIELD_H, Lead};
 
 /// Most tracks listed in the panel (the rest are still laid out; edit them through commands).
@@ -28,11 +28,32 @@ pub fn layout_section(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[Node
     let frames = sel.iter().all(|i| doc.node(*i).is_some_and(|n| n.kind.is_frame_like()));
     let al = common(doc, sel, |n| n.layout.clone());
     let has_al = matches!(al, Some(Some(_)));
-    let title = if has_al { tr("Auto layout") } else { tr("Layout") };
     // An instance's auto layout is its main's (only padding, gap and alignment are its own); the
     // layers inside it override their size and resizing, not their place in the layout.
     let in_instance = sel.iter().any(|i| figcraft_engine::components::owning_instance(doc, *i).is_some());
     let nested = sel.iter().any(|i| figcraft_engine::components::inside_instance(doc, *i));
+    let from_main = tr("In an instance, this comes from the main component");
+    // The Layout card: the size, how the layers size, the spacing between them, clipping.
+    widgets::section_header(ui, tr("Layout"), &[], false);
+    dimensions(app, ui, doc, sel, has_al, nested, from_main);
+    crate::selection_spacing::panel(app, ui, sel);
+    let grid_parent = sel.iter().all(|i| parent_of(doc, *i).and_then(|p| p.layout.as_ref()).is_some_and(|l| l.mode == LayoutMode::Grid));
+    if grid_parent && common(doc, sel, |n| n.child_layout.absolute) == Some(false) {
+        ui.add_enabled_ui(!nested, |ui| grid_cell(app, ui, doc, sel)).response.on_disabled_hover_text(from_main);
+    }
+    if frames {
+        let clip = common(doc, sel, |n| n.clip);
+        row(ui, crate::widgets::FIELD_ROW, |ui| {
+            if widgets::checkbox(ui, clip.unwrap_or(false), tr("Clip content")) {
+                app.set_props(&ids, json!({"clip": !clip.unwrap_or(false)}));
+            }
+        });
+    }
+    // The Auto layout card (frames).
+    if !(frames || has_al) {
+        return;
+    }
+    widgets::separator(ui);
     let btns: Vec<(Icon, &str)> = if in_instance {
         vec![]
     } else if frames && !has_al {
@@ -42,16 +63,13 @@ pub fn layout_section(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[Node
     } else {
         vec![]
     };
-    if widgets::section_header(ui, title, &btns, false).is_some() {
+    if widgets::section_header(ui, tr("Auto layout"), &btns, !has_al).is_some() {
         app.run(if has_al { "layout.remove" } else { "layout.add" }, json!({"ids": ids}));
     }
-    let from_main = tr("In an instance, this comes from the main component");
     if let Some(Some(l)) = &al {
-        ui.add_enabled_ui(!in_instance, |ui| direction(app, ui, &ids, l)).response.on_disabled_hover_text(from_main);
-    }
-    dimensions(app, ui, doc, sel, has_al, nested, from_main);
-    if let Some(Some(l)) = &al {
-        alignment(app, ui, &ids, l);
+        flow_and_gap(app, ui, &ids, l, in_instance, from_main);
+        padding_and_alignment(app, ui, &ids, l);
+        gap_mode(app, ui, &ids, l);
         spacing(app, ui, &ids, l);
         ui.add_enabled_ui(!in_instance, |ui| {
             advanced(app, ui, &ids, l);
@@ -62,40 +80,46 @@ pub fn layout_section(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[Node
         .response
         .on_disabled_hover_text(from_main);
     }
-    crate::selection_spacing::panel(app, ui, sel);
-    let grid_parent = sel.iter().all(|i| parent_of(doc, *i).and_then(|p| p.layout.as_ref()).is_some_and(|l| l.mode == LayoutMode::Grid));
-    if grid_parent && common(doc, sel, |n| n.child_layout.absolute) == Some(false) {
-        ui.add_enabled_ui(!nested, |ui| grid_cell(app, ui, doc, sel)).response.on_disabled_hover_text(from_main);
-    }
-    if frames {
-        let clip = common(doc, sel, |n| n.clip);
-        row(ui, 32.0, |ui| {
-            if widgets::checkbox(ui, clip.unwrap_or(false), tr("Clip content")) {
-                app.set_props(&ids, json!({"clip": !clip.unwrap_or(false)}));
-            }
-        });
-    }
 }
 
-fn direction(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
-    row(ui, 32.0, |ui| {
-        let items = [(Icon::LayoutV, tr("Vertical")), (Icon::LayoutH, tr("Horizontal")), (Icon::LayoutGrid, tr("Grid"))];
-        let active = match l.mode {
-            LayoutMode::Vertical => 0,
-            LayoutMode::Horizontal => 1,
-            LayoutMode::Grid => 2,
-        };
-        if let Some(i) = widgets::segmented(ui, &items, Some(active), 32.0) {
+/// The flow (across, down, wrapped, grid) and the gap between items.
+fn flow_and_gap(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout, in_instance: bool, from_main: &str) {
+    let col = widgets::col_width(ui.available_width());
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
+        let grid = l.mode == LayoutMode::Grid;
+        let items =
+            [(Icon::LayoutH, tr("Horizontal")), (Icon::LayoutV, tr("Vertical")), (Icon::LayoutWrap, tr("Wrap")), (Icon::LayoutGrid, tr("Grid"))];
+        let on = [l.mode == LayoutMode::Horizontal, l.mode == LayoutMode::Vertical, l.wrap && !grid, grid];
+        let picked = ui.add_enabled_ui(!in_instance, |ui| widgets::segmented_flags(ui, &items, &on, (col / 4.0).floor()));
+        picked.response.on_disabled_hover_text(from_main);
+        match picked.inner {
             // Wrap carries over between the flows: rows of a horizontal one, columns of a vertical one.
-            let mode = ["vertical", "horizontal", "grid"].get(i).copied().unwrap_or("grid");
-            app.set_props(ids, json!({"layout": mode}));
+            Some(0) => app.set_props(ids, json!({"layout": "horizontal"})),
+            Some(1) => app.set_props(ids, json!({"layout": "vertical"})),
+            Some(2) if grid => app.set_props(ids, json!({"layout": "horizontal", "wrap": true})),
+            Some(2) => app.set_props(ids, json!({"wrap": !l.wrap})),
+            Some(_) => app.set_props(ids, json!({"layout": "grid"})),
+            None => {}
         }
-        if l.mode != LayoutMode::Grid {
-            let resp = icons::button(ui, Icon::LayoutWrap, 24.0, l.wrap, tr("Wrap"));
-            crate::a11y::toggle(&resp, tr("Wrap"), l.wrap);
-            if resp.clicked() {
-                app.set_props(ids, json!({"wrap": !l.wrap}));
-            }
+        if grid {
+            let e = crate::variable_ui::number_field(
+                app,
+                ui,
+                ids,
+                "columnGap",
+                Id::new("al_gap"),
+                Lead::Icon(Icon::Gap, tr("Column gap")),
+                Some(l.gap),
+                "",
+                col,
+            );
+            app.field(ids, "columnGap", e, |v| json!(v.max(0.0)));
+        } else {
+            let auto = l.main_align.is_auto_gap();
+            let gap_icon = if l.mode == LayoutMode::Vertical { Icon::DistributeV } else { Icon::Gap };
+            let (shown, lead) = ((!auto).then_some(l.gap), Lead::Icon(gap_icon, tr("Gap between items")));
+            let e = crate::variable_ui::number_field_or(app, ui, ids, "gap", Id::new("al_gap"), shown, col, tr("Auto"), lead, "");
+            app.field(ids, "gap", e, |v| json!(v));
         }
     });
 }
@@ -154,8 +178,7 @@ fn dimensions(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId], has
     let h_of = |n: &Node| (n.height * 100.0).round() / 100.0;
     let (w, h) = (common(doc, sel, w_of), common(doc, sel, h_of));
     let col = widgets::col_width(ui.available_width());
-    widgets::sublabels(ui, tr("Dimensions"), None);
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let e = crate::variable_ui::number_field_mixed(app, ui, &ids, "width", Id::new("lay_w"), Lead::Text("W"), w, "", col);
         app.field_of(&ids, "width", e, w_of, |v| json!(v.max(0.0)));
         let e = crate::variable_ui::number_field_mixed(app, ui, &ids, "height", Id::new("lay_h"), Lead::Text("H"), h, "", col);
@@ -180,7 +203,7 @@ fn dimensions(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId], has
     let can_fill = parent_al && sel.iter().all(|i| doc.node(*i).is_some_and(|n| !n.child_layout.absolute));
     let can_limit = has_al || can_fill;
     let first = sel.first().and_then(|i| doc.node(*i));
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         for (ax, axis) in AXES.iter().enumerate() {
             let horizontal = ax == 0;
             let cur = common(doc, sel, |n| if horizontal { n.child_layout.sizing_h } else { n.child_layout.sizing_v });
@@ -254,7 +277,7 @@ fn limit_row(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId], hori
     }
     let ids = sel.to_vec();
     let current = nodes.first().map(|n| if horizontal { n.width } else { n.height }).unwrap_or(0.0);
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         for (is_min, key) in [(true, axis.min), (false, axis.max)] {
             let (lead, add) = if is_min { (tr(axis.min_lead), tr(axis.add_min)) } else { (tr(axis.max_lead), tr(axis.add_max)) };
             if has(is_min) {
@@ -283,117 +306,137 @@ fn add_slot(ui: &mut Ui, label: &str, tip: &str, width: f32) -> egui::Response {
     resp
 }
 
-fn alignment(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
+/// The padding (across, then down) beside the alignment matrix.
+fn padding_and_alignment(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
+    let col = widgets::col_width(ui.available_width());
+    let [pt, pr, pb, pl] = l.padding;
+    let h = FIELD_H * 2.0 + 8.0;
+    block(ui, h + 8.0, 0.0, |ui| {
+        ui.vertical(|ui| {
+            ui.set_width(col);
+            let e = crate::variable_ui::number_field(
+                app,
+                ui,
+                ids,
+                "paddingHorizontal",
+                Id::new("al_padh"),
+                Lead::Icon(Icon::PaddingH, tr("Horizontal padding")),
+                (pl == pr).then_some(pl),
+                "",
+                col,
+            );
+            app.field(ids, "paddingHorizontal", e, |v| json!(v.max(0.0)));
+            ui.add_space(8.0);
+            let e = crate::variable_ui::number_field(
+                app,
+                ui,
+                ids,
+                "paddingVertical",
+                Id::new("al_padv"),
+                Lead::Icon(Icon::PaddingV, tr("Vertical padding")),
+                (pt == pb).then_some(pt),
+                "",
+                col,
+            );
+            app.field(ids, "paddingVertical", e, |v| json!(v.max(0.0)));
+        });
+        let (grid, _) = ui.allocate_exact_size(vec2(col, h), Sense::hover());
+        align_matrix(app, ui, ids, l, grid);
+    });
+}
+
+/// Where the items sit: a 3×3 matrix of the main and cross alignments (a pill on the current one).
+fn align_matrix(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout, grid: Rect) {
     let t = Tokens::get(ui.ctx());
     let grid_mode = l.mode == LayoutMode::Grid;
-    block(ui, 76.0, 6.0, |ui| {
-        let (grid, _) = ui.allocate_exact_size(vec2(72.0, 64.0), Sense::hover());
-        ui.painter().rect_filled(grid, CornerRadius::same(5), t.field);
-        let horizontal = l.mode != LayoutMode::Vertical;
-        let cur_main = match l.main_align {
-            MainAlign::Min => 0,
-            MainAlign::Center => 1,
-            MainAlign::Max => 2,
-            MainAlign::SpaceBetween | MainAlign::SpaceAround | MainAlign::SpaceEvenly => 9,
-        };
-        // Wrapped lines spread across the flow light the whole cross axis, like an auto gap does
-        // the main one.
-        let spread = !grid_mode && l.wrap && l.content_align == ContentAlign::SpaceBetween;
-        let cur_cross = match l.cross_align {
-            _ if spread => 9,
-            CrossAlign::Min | CrossAlign::Baseline => 0,
-            CrossAlign::Center => 1,
-            CrossAlign::Max => 2,
-        };
-        for yi in 0..3 {
-            for xi in 0..3 {
-                let c = pos2(grid.min.x + 12.0 + xi as f32 * 24.0, grid.min.y + 10.0 + yi as f32 * 22.0);
-                let r = Rect::from_center_size(c, vec2(22.0, 20.0));
-                let resp = ui.interact(r, Id::new(("al_grid", xi, yi)), Sense::click());
-                let (main_i, cross_i) = if horizontal { (xi, yi) } else { (yi, xi) };
-                let on = (cur_main == main_i || cur_main == 9) && (cur_cross == cross_i || cur_cross == 9);
-                if on {
-                    ui.painter().rect_filled(
-                        Rect::from_center_size(c, vec2(if horizontal { 4.0 } else { 12.0 }, if horizontal { 12.0 } else { 4.0 })),
-                        CornerRadius::same(1),
-                        ACCENT,
-                    );
-                } else {
-                    ui.painter().circle_filled(c, if resp.hovered() { 2.5 } else { 1.5 }, if resp.hovered() { ACCENT } else { t.text_tertiary });
-                }
-                if resp.clicked() {
-                    let m = ["min", "center", "max"][main_i];
-                    let cr = ["min", "center", "max"][cross_i];
-                    // An auto gap keeps its mode: the cells pick the cross alignment.
-                    let main = if l.main_align.is_auto_gap() && !grid_mode { json!(l.main_align) } else { json!(m) };
-                    app.set_props(ids, json!({"mainAlign": main, "crossAlign": cr}));
-                }
+    ui.painter().rect_filled(grid, CornerRadius::same(crate::widgets::FIELD_R), t.field);
+    let horizontal = l.mode != LayoutMode::Vertical;
+    let cur_main = match l.main_align {
+        MainAlign::Min => 0,
+        MainAlign::Center => 1,
+        MainAlign::Max => 2,
+        MainAlign::SpaceBetween | MainAlign::SpaceAround | MainAlign::SpaceEvenly => 9,
+    };
+    // Wrapped lines spread across the flow light the whole cross axis, like an auto gap does
+    // the main one.
+    let spread = !grid_mode && l.wrap && l.content_align == ContentAlign::SpaceBetween;
+    let cur_cross = match l.cross_align {
+        _ if spread => 9,
+        CrossAlign::Min | CrossAlign::Baseline => 0,
+        CrossAlign::Center => 1,
+        CrossAlign::Max => 2,
+    };
+    let (cw, ch) = (grid.width() / 3.0, grid.height() / 3.0);
+    for yi in 0..3 {
+        for xi in 0..3 {
+            let c = pos2(grid.min.x + cw * (xi as f32 + 0.5), grid.min.y + ch * (yi as f32 + 0.5));
+            let r = Rect::from_center_size(c, vec2(cw, ch));
+            let resp = ui.interact(r, Id::new(("al_grid", xi, yi)), Sense::click());
+            let (main_i, cross_i) = if horizontal { (xi, yi) } else { (yi, xi) };
+            let on = (cur_main == main_i || cur_main == 9) && (cur_cross == cross_i || cur_cross == 9);
+            if on {
+                let size = if horizontal { vec2(18.0, 9.0) } else { vec2(9.0, 18.0) };
+                ui.painter().rect_filled(Rect::from_center_size(c, size), CornerRadius::same(4), accent());
+            } else {
+                ui.painter().circle_filled(c, if resp.hovered() { 2.5 } else { 1.8 }, if resp.hovered() { accent() } else { t.text_tertiary });
+            }
+            if resp.clicked() {
+                let m = ["min", "center", "max"][main_i];
+                let cr = ["min", "center", "max"][cross_i];
+                // An auto gap keeps its mode: the cells pick the cross alignment.
+                let main = if l.main_align.is_auto_gap() && !grid_mode { json!(l.main_align) } else { json!(m) };
+                app.set_props(ids, json!({"mainAlign": main, "crossAlign": cr}));
             }
         }
-        ui.vertical(|ui| {
-            if grid_mode {
-                // Grid: gap between columns and between rows.
-                let e = crate::variable_ui::number_field(
-                    app,
-                    ui,
-                    ids,
-                    "columnGap",
-                    Id::new("al_gap"),
-                    Lead::Icon(Icon::Gap, tr("Column gap")),
-                    Some(l.gap),
-                    "",
-                    96.0,
-                );
-                app.field(ids, "columnGap", e, |v| json!(v.max(0.0)));
-                ui.add_space(8.0);
-                let e = crate::variable_ui::number_field(
-                    app,
-                    ui,
-                    ids,
-                    "rowGap",
-                    Id::new("al_rowgap"),
-                    Lead::Icon(Icon::DistributeV, tr("Row gap")),
-                    Some(l.cross_gap),
-                    "",
-                    96.0,
-                );
-                app.field(ids, "rowGap", e, |v| json!(v.max(0.0)));
-                return;
-            }
-            let auto = l.main_align.is_auto_gap();
-            let gap_icon = if l.mode == LayoutMode::Vertical { Icon::DistributeV } else { Icon::Gap };
-            let (shown, lead) = ((!auto).then_some(l.gap), Lead::Icon(gap_icon, tr("Gap between items")));
-            let e = crate::variable_ui::number_field_or(app, ui, ids, "gap", Id::new("al_gap"), shown, 96.0, tr("Auto"), lead, "");
-            app.field(ids, "gap", e, |v| json!(v));
-            ui.add_space(8.0);
-            let label = match l.main_align {
-                MainAlign::SpaceBetween => tr("Space between"),
-                MainAlign::SpaceAround => tr("Space around"),
-                MainAlign::SpaceEvenly => tr("Space evenly"),
-                _ => tr("Fixed gap"),
-            };
-            let resp = widgets::dropdown(ui, label, 96.0, None);
-            crate::a11y::combo(&resp, tr("Auto gap"), label, crate::a11y::menu_open(&resp));
-            menu_popup(&resp).show(|ui| {
-                let modes = [
-                    (tr("Fixed"), "min"),
-                    (tr("Auto (space between)"), "spaceBetween"),
-                    (tr("Auto (space evenly)"), "spaceEvenly"),
-                    (tr("Auto (space around)"), "spaceAround"),
-                ];
-                for (l, v) in modes {
-                    if menu_item(ui, l, "") {
-                        app.set_props(ids, json!({"mainAlign": v}));
-                        ui.close();
-                    }
+    }
+}
+
+/// Fixed or automatic gaps (the grid's row gap beside it), and text baselines for rows.
+fn gap_mode(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
+    let col = widgets::col_width(ui.available_width());
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
+        if l.mode == LayoutMode::Grid {
+            let e = crate::variable_ui::number_field(
+                app,
+                ui,
+                ids,
+                "rowGap",
+                Id::new("al_rowgap"),
+                Lead::Icon(Icon::DistributeV, tr("Row gap")),
+                Some(l.cross_gap),
+                "",
+                col,
+            );
+            app.field(ids, "rowGap", e, |v| json!(v.max(0.0)));
+            return;
+        }
+        let label = match l.main_align {
+            MainAlign::SpaceBetween => tr("Space between"),
+            MainAlign::SpaceAround => tr("Space around"),
+            MainAlign::SpaceEvenly => tr("Space evenly"),
+            _ => tr("Fixed gap"),
+        };
+        let resp = widgets::dropdown(ui, label, col, None);
+        crate::a11y::combo(&resp, tr("Auto gap"), label, crate::a11y::menu_open(&resp));
+        menu_popup(&resp).show(|ui| {
+            let modes = [
+                (tr("Fixed"), "min"),
+                (tr("Auto (space between)"), "spaceBetween"),
+                (tr("Auto (space evenly)"), "spaceEvenly"),
+                (tr("Auto (space around)"), "spaceAround"),
+            ];
+            for (l, v) in modes {
+                if menu_item(ui, l, "") {
+                    app.set_props(ids, json!({"mainAlign": v}));
+                    ui.close();
                 }
-            });
+            }
         });
     });
     // Text baselines: horizontal stacks only.
     if l.mode == LayoutMode::Horizontal {
         let on = l.cross_align == CrossAlign::Baseline;
-        row(ui, 28.0, |ui| {
+        row(ui, crate::widgets::FIELD_ROW, |ui| {
             if widgets::checkbox(ui, on, tr("Align text baselines")) {
                 app.set_props(ids, json!({"crossAlign": if on { "min" } else { "baseline" }}));
             }
@@ -401,41 +444,15 @@ fn alignment(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
     }
 }
 
+/// The gap between wrapped lines, and the grid's columns and rows.
 fn spacing(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
     let col = widgets::col_width(ui.available_width());
-    let [pt, pr, pb, pl] = l.padding;
-    row(ui, 32.0, |ui| {
-        let e = crate::variable_ui::number_field(
-            app,
-            ui,
-            ids,
-            "paddingHorizontal",
-            Id::new("al_padh"),
-            Lead::Icon(Icon::PaddingH, tr("Horizontal padding")),
-            (pl == pr).then_some(pl),
-            "",
-            col,
-        );
-        app.field(ids, "paddingHorizontal", e, |v| json!(v.max(0.0)));
-        let e = crate::variable_ui::number_field(
-            app,
-            ui,
-            ids,
-            "paddingVertical",
-            Id::new("al_padv"),
-            Lead::Icon(Icon::PaddingV, tr("Vertical padding")),
-            (pt == pb).then_some(pt),
-            "",
-            col,
-        );
-        app.field(ids, "paddingVertical", e, |v| json!(v.max(0.0)));
-    });
     if l.mode != LayoutMode::Grid && l.wrap {
         // Wrapped rows (horizontal) or columns (vertical): the gap between them.
         let vertical = l.mode == LayoutMode::Vertical;
         let name = if vertical { tr("Column gap") } else { tr("Row gap") };
         widgets::sublabels(ui, name, None);
-        row(ui, 32.0, |ui| {
+        row(ui, crate::widgets::FIELD_ROW, |ui| {
             let (icon, tip) = if vertical { (Icon::Gap, tr("Gap between columns")) } else { (Icon::DistributeV, tr("Gap between rows")) };
             let spread = l.content_align == ContentAlign::SpaceBetween;
             let shown = (!spread).then_some(l.cross_gap);
@@ -468,7 +485,7 @@ fn spacing(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
     }
     if l.mode == LayoutMode::Grid {
         widgets::sublabels(ui, tr("Columns"), Some(tr("Rows")));
-        row(ui, 32.0, |ui| {
+        row(ui, crate::widgets::FIELD_ROW, |ui| {
             let e = widgets::number_field(ui, Id::new("al_cols"), Lead::None, Some(f64::from(l.grid_columns)), "", col, 1.0);
             app.field(ids, "gridColumns", e, |v| json!(v.max(1.0)));
             let e = widgets::number_field(ui, Id::new("al_rows"), Lead::None, Some(f64::from(l.grid_rows)), "", col, 1.0);
@@ -482,7 +499,7 @@ fn spacing(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
 fn advanced(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], l: &AutoLayout) {
     let col = widgets::col_width(ui.available_width());
     widgets::sublabels(ui, tr("Strokes"), Some(tr("Canvas stacking")));
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         // (value, menu item, the field's shorter label)
         let menus = [
             (
@@ -534,7 +551,7 @@ fn tracks(app: &mut FigApp, ui: &mut Ui, doc: &Document, ids: &[NodeId]) {
                 }
                 p
             };
-            row(ui, 32.0, |ui| {
+            row(ui, crate::widgets::FIELD_ROW, |ui| {
                 let label = (i + 1).to_string();
                 // Fill tracks edit their fr; fixed and hug tracks show (and set) a px size.
                 let (value, suffix) = if track.sizing == Sizing::Fill { (track.value, "fr") } else { (size, "") };
@@ -579,7 +596,7 @@ fn grid_cell(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId]) {
     {
         let anchored = doc.node(*id).is_some_and(|n| n.child_layout.grid_column.is_some() || n.child_layout.grid_row.is_some());
         widgets::sublabels(ui, tr("Column"), Some(tr("Row")));
-        row(ui, 32.0, |ui| {
+        row(ui, crate::widgets::FIELD_ROW, |ui| {
             // Moving on one axis pins the other where it is, so the child doesn't jump.
             let at = |c: f64, r: f64| json!({"ids": [id], "props": {"gridColumn": (c - 1.0).max(0.0), "gridRow": (r - 1.0).max(0.0)}});
             let (c0, r0) = ((cell.column + 1) as f64, (cell.row + 1) as f64);
@@ -595,7 +612,7 @@ fn grid_cell(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId]) {
     let cs = common(doc, sel, |n| f64::from(n.child_layout.column_span()));
     let rs = common(doc, sel, |n| f64::from(n.child_layout.row_span()));
     widgets::sublabels(ui, tr("Column span"), Some(tr("Row span")));
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let e = widgets::number_field(ui, Id::new("al_span_c"), Lead::None, cs, "", col, 1.0);
         app.field(&ids, "gridColumnSpan", e, |v| json!(v.max(1.0)));
         let e = widgets::number_field(ui, Id::new("al_span_r"), Lead::None, rs, "", col, 1.0);
@@ -603,7 +620,7 @@ fn grid_cell(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId]) {
     });
     // Alignment in the cell; Auto follows the frame's alignment.
     widgets::sublabels(ui, tr("Horizontal align"), Some(tr("Vertical align")));
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let axes = [
             ("gridAlignH", tr("Horizontal align"), common(doc, sel, |n| n.child_layout.grid_align_h), [tr("Left"), tr("Center"), tr("Right")]),
             ("gridAlignV", tr("Vertical align"), common(doc, sel, |n| n.child_layout.grid_align_v), [tr("Top"), tr("Center"), tr("Bottom")]),

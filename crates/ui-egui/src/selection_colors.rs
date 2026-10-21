@@ -60,77 +60,82 @@ pub fn section(app: &mut FigApp, ui: &mut Ui, doc: &Arc<Document>, ids: &[NodeId
     widgets::section_header(ui, tr("Selection colors"), &[], false);
     // Bound the panel's height; a document with many distinct colors stays scrollable.
     ui.add_enabled_ui(!interacting, |ui| {
-        egui::ScrollArea::vertical().id_salt("selection_colors_rows").max_height(240.0).show_rows(ui, 32.0, colors.len(), |ui, range| {
-            for group in &colors[range] {
-                ui.push_id((&group.targets, "selection_color"), |ui| {
-                    crate::right::row(ui, 32.0, |ui| {
-                        let swatch = widgets::swatch(ui, &group.paint, 24.0).tip(tr("Edit colour"));
-                        if swatch.clicked() {
-                            open_picker(app, group.targets.clone());
-                        }
-                        let width = (ui.available_width() - 116.0).max(40.0);
-                        let linked_name = group
-                            .style
-                            .as_ref()
-                            .and_then(|id| doc.style(id).map(|s| s.name.as_str()))
-                            .or_else(|| group.variable.as_ref().and_then(|id| doc.variables.get(id).map(|v| v.name.as_str())));
-                        if let Some(name) = linked_name {
-                            if widgets::dropdown(ui, name, width, None).clicked() {
+        egui::ScrollArea::vertical().id_salt("selection_colors_rows").max_height(240.0).show_rows(
+            ui,
+            crate::widgets::FIELD_ROW,
+            colors.len(),
+            |ui, range| {
+                for group in &colors[range] {
+                    ui.push_id((&group.targets, "selection_color"), |ui| {
+                        crate::right::row(ui, crate::widgets::FIELD_ROW, |ui| {
+                            let swatch = widgets::swatch(ui, &group.paint, 24.0).tip(tr("Edit colour"));
+                            if swatch.clicked() {
                                 open_picker(app, group.targets.clone());
                             }
-                        } else if let Some(color) = group.paint.solid_color() {
-                            if let Some(hex) = widgets::text_field_named(ui, ui.id().with("hex"), &color.to_hex(), width, tr("Color")) {
-                                if let Some(color) = Color::from_hex(&hex) {
-                                    let mut paint = group.paint.clone();
-                                    paint.kind = figcraft_color::PaintKind::Solid { color: color.with_alpha(1.0) };
-                                    if color.a < 1.0 {
-                                        paint.opacity = color.a;
+                            let width = (ui.available_width() - 116.0).max(40.0);
+                            let linked_name = group
+                                .style
+                                .as_ref()
+                                .and_then(|id| doc.style(id).map(|s| s.name.as_str()))
+                                .or_else(|| group.variable.as_ref().and_then(|id| doc.variables.get(id).map(|v| v.name.as_str())));
+                            if let Some(name) = linked_name {
+                                if widgets::dropdown(ui, name, width, None).clicked() {
+                                    open_picker(app, group.targets.clone());
+                                }
+                            } else if let Some(color) = group.paint.solid_color() {
+                                if let Some(hex) = widgets::text_field_named(ui, ui.id().with("hex"), &color.to_hex(), width, tr("Color")) {
+                                    if let Some(color) = Color::from_hex(&hex) {
+                                        let mut paint = group.paint.clone();
+                                        paint.kind = figcraft_color::PaintKind::Solid { color: color.with_alpha(1.0) };
+                                        if color.a < 1.0 {
+                                            paint.opacity = color.a;
+                                        }
+                                        app.run("selection.setPaint", json!({"targets": group.targets, "paint": paint}));
+                                    } else {
+                                        app.toast(tr("Invalid color"));
                                     }
-                                    app.run("selection.setPaint", json!({"targets": group.targets, "paint": paint}));
-                                } else {
-                                    app.toast(tr("Invalid color"));
+                                }
+                            } else {
+                                let response = widgets::dropdown(ui, &widgets::paint_name(&group.paint), width, None);
+                                if response.clicked() {
+                                    open_picker(app, group.targets.clone());
                                 }
                             }
-                        } else {
-                            let response = widgets::dropdown(ui, &widgets::paint_name(&group.paint), width, None);
-                            if response.clicked() {
-                                open_picker(app, group.targets.clone());
+                            let alpha = format!("{}%", figcraft_doc::trim_num(f64::from(group.paint.opacity) * 100.0));
+                            if let Some(value) = widgets::text_field_named(ui, ui.id().with("opacity"), &alpha, 44.0, tr("Opacity"))
+                                && let Ok(value) = value.trim().trim_end_matches('%').parse::<f32>()
+                                && value.is_finite()
+                            {
+                                let mut paint = group.paint.clone();
+                                paint.opacity = (value / 100.0).clamp(0.0, 1.0);
+                                app.run("selection.setPaint", json!({"targets": group.targets, "paint": paint}));
                             }
-                        }
-                        let alpha = format!("{}%", figcraft_doc::trim_num(f64::from(group.paint.opacity) * 100.0));
-                        if let Some(value) = widgets::text_field_named(ui, ui.id().with("opacity"), &alpha, 44.0, tr("Opacity"))
-                            && let Ok(value) = value.trim().trim_end_matches('%').parse::<f32>()
-                            && value.is_finite()
-                        {
-                            let mut paint = group.paint.clone();
-                            paint.opacity = (value / 100.0).clamp(0.0, 1.0);
-                            app.run("selection.setPaint", json!({"targets": group.targets, "paint": paint}));
-                        }
-                        let styles = icons::button(ui, Icon::Styles, 24.0, false, tr("Color styles"));
-                        crate::right::menu_popup(&styles).show(|ui| {
-                            let mut any = false;
-                            for style in &doc.styles {
-                                if !matches!(style.kind, StyleKind::Paint { .. }) {
-                                    continue;
+                            let styles = icons::button(ui, Icon::Styles, 24.0, false, tr("Color styles"));
+                            crate::right::menu_popup(&styles).show(|ui| {
+                                let mut any = false;
+                                for style in &doc.styles {
+                                    if !matches!(style.kind, StyleKind::Paint { .. }) {
+                                        continue;
+                                    }
+                                    any = true;
+                                    if crate::right::menu_item(ui, &style.name, "") {
+                                        app.run("selection.applyColorStyle", json!({"targets": group.targets, "style": style.id}));
+                                        app.ui.picker = None;
+                                        ui.close();
+                                    }
                                 }
-                                any = true;
-                                if crate::right::menu_item(ui, &style.name, "") {
-                                    app.run("selection.applyColorStyle", json!({"targets": group.targets, "style": style.id}));
-                                    app.ui.picker = None;
-                                    ui.close();
+                                if !any {
+                                    widgets::label(ui, tr("No color styles"), t.text_secondary);
                                 }
-                            }
-                            if !any {
-                                widgets::label(ui, tr("No color styles"), t.text_secondary);
+                            });
+                            if icons::button(ui, Icon::Move, 24.0, false, tr("Select layers with this color")).clicked() {
+                                app.run("selection.selectColor", json!({"targets": group.targets}));
                             }
                         });
-                        if icons::button(ui, Icon::Move, 24.0, false, tr("Select layers with this color")).clicked() {
-                            app.run("selection.selectColor", json!({"targets": group.targets}));
-                        }
                     });
-                });
-            }
-        });
+                }
+            },
+        );
     });
     ui.add_space(8.0);
     widgets::separator(ui);

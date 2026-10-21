@@ -25,7 +25,7 @@ pub fn section(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId]) {
     let mut scrub: Option<bool> = None;
     let round = |v: f64| (v * 100.0).round() / 100.0;
     widgets::sublabels(ui, tr("Dimensions"), None);
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         for (key, lead, side) in [("scale_w", "W", b.width()), ("scale_h", "H", b.height())] {
             let (v, s) = match widgets::number_field(ui, Id::new(key), Lead::Text(lead), Some(round(side)), "", col, 1.0) {
                 Some(FieldEdit::Set(v)) => (v, None),

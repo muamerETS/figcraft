@@ -10,10 +10,10 @@ use figcraft_engine::templates::{Kind, TEMPLATES, Template};
 use serde_json::json;
 
 use crate::FigApp;
-use crate::a11y;
+use crate::a11y::{self, Tip};
 use crate::i18n::{tr, tr_noop};
 use crate::icons::{self, Icon};
-use crate::theme::{ACCENT, Tokens, regular, semibold};
+use crate::theme::{Tokens, accent, regular, semibold};
 use crate::widgets;
 
 /// The section the home screen shows.
@@ -98,7 +98,7 @@ pub(crate) fn file_row(ui: &Ui, t: &Tokens, r: Rect, resp: &Response, row: &File
     /// A detail with less room than this is left out rather than shown as a bare ellipsis.
     const MIN_DETAIL: f32 = 48.0;
     if resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
+        ui.painter().rect_filled(r, CornerRadius::same(7), t.hover);
     }
     if let Some((icon, tint)) = row.mark {
         icons::paint(ui.painter(), Rect::from_min_size(pos2(r.min.x + 8.0, r.center().y - 8.0), vec2(16.0, 16.0)), icon, tint);
@@ -133,26 +133,39 @@ fn listed(ui: &mut Ui, t: &Tokens, id: Id, height: f32, row: &FileRow) -> bool {
         // Cut to fit: in full on hover.
         resp = resp.on_hover_text(format!("{}\n{}", row.name, row.detail));
     }
-    focus_ring(ui, t, r, &resp, 5);
+    focus_ring(ui, t, r, &resp, 9);
     resp.clicked()
 }
 
 pub fn show(app: &mut FigApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     dropped(app, ui.ctx());
-    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.panel)).show(ui, |ui| {
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
         let rect = ui.max_rect();
         let left = Rect::from_min_size(rect.min, vec2(SIDEBAR, rect.height()));
-        ui.painter().line_segment([left.right_top(), left.right_bottom()], Stroke::new(1.0, t.border));
-        sidebar(app, ui, &t, left);
+        // The navigation floats as an island, like the editor's panels.
+        let gap = f32::from(crate::ISLAND_GAP);
+        // On macOS the window's buttons sit above the islands, on space that moves the window.
+        let top = if app.ui.title_bar == crate::TitleBar::Inset { crate::tabs::INSET_TOP } else { gap };
+        crate::tabs::window_drag(app, ui, Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + top)), "home_top_drag");
+        let island = Rect::from_min_max(left.min + vec2(gap, top), left.max - vec2(0.0, gap));
+        let radius = CornerRadius::same(crate::ISLAND_R);
+        ui.painter().rect_filled(island, radius, t.panel);
+        ui.painter().rect_stroke(island, radius, Stroke::new(1.0, t.border), StrokeKind::Inside);
+        sidebar(app, ui, &t, island);
+        // The content in an island of its own beside the navigation.
+        let main = Rect::from_min_max(pos2(left.max.x + gap, rect.min.y + top), rect.max - vec2(gap, gap));
+        ui.painter().rect_filled(main, radius, t.panel);
+        ui.painter().rect_stroke(main, radius, Stroke::new(1.0, t.border), StrokeKind::Inside);
         if app.ui.home_view.file_query.trim().is_empty() && app.ui.home_view.section == Section::Online {
             // Your online files lay themselves out in the area (and scroll their own list).
-            let area = Rect::from_min_max(pos2(left.max.x + 40.0, rect.min.y + 24.0), rect.max - vec2(40.0, 24.0));
+            let area = main.shrink2(vec2(40.0, 24.0));
             crate::online::section(app, ui, area, &t);
             opened_join(app);
             return;
         }
-        let main = Rect::from_min_max(pos2(left.max.x, rect.min.y), rect.max);
+        top_controls(app, ui, &t, main);
+        let main = main.shrink(2.0);
         ui.scope_builder(egui::UiBuilder::new().max_rect(main), |ui| {
             egui::ScrollArea::vertical().id_salt("home").auto_shrink([false, false]).show(ui, |ui| {
                 egui::Frame::NONE.inner_margin(egui::Margin::symmetric(40, 24)).show(ui, |ui| {
@@ -201,11 +214,34 @@ fn dropped(app: &mut FigApp, ctx: &egui::Context) {
 }
 
 fn sidebar(app: &mut FigApp, ui: &mut Ui, t: &Tokens, left: Rect) {
-    let mut y = left.min.y + 20.0;
-    icons::paint(ui.painter(), Rect::from_min_size(pos2(left.min.x + 16.0, y), vec2(20.0, 20.0)), Icon::Logo, ACCENT);
-    ui.painter().text(pos2(left.min.x + 44.0, y + 10.0), Align2::LEFT_CENTER, "FigCraft", semibold(14.0), t.text);
-    y += 48.0;
-    let search = Rect::from_min_size(pos2(left.min.x + 8.0, y), vec2(SIDEBAR - 16.0, widgets::FIELD_H));
+    let mut y = left.min.y + 16.0;
+    let tile = Rect::from_min_size(pos2(left.min.x + 14.0, y), vec2(32.0, 32.0));
+    ui.painter().rect_filled(tile, CornerRadius::same(8), accent());
+    icons::paint(ui.painter(), Rect::from_center_size(tile.center(), vec2(18.0, 18.0)), Icon::Logo, Color32::WHITE);
+    ui.painter().text(pos2(tile.max.x + 12.0, tile.center().y), Align2::LEFT_CENTER, "FigCraft", semibold(15.0), t.text);
+    // The main menu and the open files, at the header's end.
+    let files_r = Rect::from_min_size(pos2(left.max.x - 12.0 - 26.0, tile.center().y - 13.0), vec2(26.0, 26.0));
+    let files = ui.interact(files_r, ui.id().with("open_files"), Sense::click()).tip(tr("Open files"));
+    a11y::menu_button(&files, tr("Open files"), a11y::menu_open(&files));
+    if files.hovered() {
+        ui.painter().rect_filled(files_r, CornerRadius::same(6), t.hover);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(files_r.center(), vec2(10.0, 10.0)), Icon::Chevron, t.icon_secondary);
+    crate::tabs::files_menu(app, ui, &files, false);
+    let menu_r = files_r.translate(vec2(-30.0, 0.0));
+    let menu = ui.interact(menu_r, ui.id().with("rail_menu"), Sense::click()).tip(tr("Main menu"));
+    if menu.hovered() || app.ui.main_menu {
+        ui.painter().rect_filled(menu_r, CornerRadius::same(6), t.hover);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(menu_r.center(), vec2(16.0, 16.0)), Icon::Menu, t.icon);
+    if menu.clicked() {
+        app.ui.main_menu = !app.ui.main_menu;
+    }
+    if app.ui.main_menu {
+        a11y::popup(&mut app.ui.nav, menu.id, crate::menus::main_menu_id());
+    }
+    y += 52.0;
+    let search = Rect::from_min_size(pos2(left.min.x + 12.0, y), vec2(left.width() - 24.0, widgets::FIELD_H));
     ui.scope_builder(egui::UiBuilder::new().max_rect(search), |ui| {
         let response =
             widgets::text_input(ui, Id::new("home_file_search"), &mut app.ui.home_view.file_query, search.width(), tr("Search files and templates"));
@@ -214,23 +250,59 @@ fn sidebar(app: &mut FigApp, ui: &mut Ui, t: &Tokens, left: Rect) {
             app.ui.home_view.file_query.clear();
         }
     });
-    y += widgets::FIELD_H + 12.0;
+    y += widgets::FIELD_H + 16.0;
     for (section, icon, label) in Section::ALL {
-        let r = Rect::from_min_size(pos2(left.min.x + 8.0, y), vec2(SIDEBAR - 16.0, 32.0));
+        let r = Rect::from_min_size(pos2(left.min.x + 10.0, y), vec2(left.width() - 20.0, 36.0));
         let resp = ui.interact(r, ui.id().with(("home_section", label)), Sense::click());
         let current = app.ui.home_view.file_query.trim().is_empty() && app.ui.home_view.section == section;
         a11y::tab(&resp, tr(label), current);
         if current || resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(5), if current { t.selected_row } else { t.hover });
+            ui.painter().rect_filled(r, CornerRadius::same(7), if current { t.selected_row } else { t.hover });
         }
-        focus_ring(ui, t, r, &resp, 5);
-        icons::paint(ui.painter(), Rect::from_min_size(pos2(r.min.x + 10.0, r.center().y - 8.0), vec2(16.0, 16.0)), icon, t.icon);
-        ui.painter().text(pos2(r.min.x + 36.0, r.center().y), Align2::LEFT_CENTER, tr(label), regular(12.0), t.text);
+        if current {
+            let bar = Rect::from_min_size(pos2(r.min.x, r.center().y - 8.0), vec2(3.0, 16.0));
+            ui.painter().rect_filled(bar, CornerRadius::same(2), accent());
+        }
+        focus_ring(ui, t, r, &resp, 9);
+        icons::paint(
+            ui.painter(),
+            Rect::from_min_size(pos2(r.min.x + 12.0, r.center().y - 8.0), vec2(16.0, 16.0)),
+            icon,
+            if current { t.accent_text } else { t.icon_secondary },
+        );
+        ui.painter().text(
+            pos2(r.min.x + 38.0, r.center().y),
+            Align2::LEFT_CENTER,
+            tr(label),
+            if current { semibold(12.5) } else { regular(12.5) },
+            t.text,
+        );
         if resp.clicked() {
             app.ui.home_view.section = section;
             app.ui.home_view.file_query.clear();
         }
-        y += 34.0;
+        y += 38.0;
+    }
+}
+
+/// What the top bar does elsewhere, at the top of the content island: its empty top moves the
+/// window (a double-click maximises) in a frameless window, and the theme and the window's buttons
+/// sit at its right.
+fn top_controls(app: &mut FigApp, ui: &mut Ui, t: &Tokens, main: Rect) {
+    let strip = Rect::from_min_size(main.min, vec2(main.width(), 56.0));
+    crate::tabs::window_drag(app, ui, strip, "home_titlebar_drag");
+    let mut right = strip.max.x - 16.0;
+    if app.ui.title_bar == crate::TitleBar::Custom {
+        let bar = Rect::from_min_max(pos2(right - 3.0 * 46.0, strip.min.y + 10.0), pos2(right, strip.min.y + 46.0));
+        right -= crate::tabs::window_buttons(app, ui, bar) + 8.0;
+    }
+    let theme_r = Rect::from_min_size(pos2(right - 32.0, strip.center().y - 16.0), vec2(32.0, 32.0));
+    let resp = ui.interact(theme_r, ui.id().with("theme"), Sense::click()).tip(tr("Toggle light/dark theme"));
+    ui.painter().rect_filled(theme_r, CornerRadius::same(7), if resp.hovered() { t.hover } else { t.field });
+    icons::paint(ui.painter(), Rect::from_center_size(theme_r.center(), vec2(16.0, 16.0)), if app.ui.dark { Icon::Sun } else { Icon::Moon }, t.icon);
+    if resp.clicked() {
+        let cmd = if app.ui.dark { "view.themeLight" } else { "view.themeDark" };
+        app.run(cmd, json!({}));
     }
 }
 
@@ -296,38 +368,44 @@ fn focus_ring(ui: &Ui, t: &Tokens, rect: Rect, resp: &Response, radius: u8) {
 
 /// A card's background and border (lit on hover, ringed with the keyboard on it).
 fn card_frame(ui: &Ui, t: &Tokens, rect: Rect, resp: &Response) {
-    ui.painter().rect_filled(rect, CornerRadius::same(8), if resp.hovered() { t.hover } else { t.panel });
-    ui.painter().rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0, t.border), StrokeKind::Inside);
-    focus_ring(ui, t, rect, resp, 8);
+    if resp.hovered() {
+        widgets::soft_shadow(ui.painter(), rect, 14);
+    }
+    ui.painter().rect_filled(rect, CornerRadius::same(10), t.card);
+    let border = if resp.hovered() { t.accent.gamma_multiply(0.6) } else { t.card_border };
+    ui.painter().rect_stroke(rect, CornerRadius::same(10), Stroke::new(1.0, border), StrokeKind::Inside);
+    focus_ring(ui, t, rect, resp, 14);
 }
 
 fn heading(ui: &mut Ui, t: &Tokens, text: &str) {
-    ui.label(egui::RichText::new(text).font(semibold(18.0)).color(t.text));
-    ui.add_space(24.0);
+    ui.label(egui::RichText::new(text).font(semibold(22.0)).color(t.text));
+    ui.add_space(22.0);
 }
 
 fn subheading(ui: &mut Ui, t: &Tokens, text: &str) {
-    ui.add_space(28.0);
-    ui.label(egui::RichText::new(text).font(semibold(12.0)).color(t.text_secondary));
+    ui.add_space(32.0);
+    ui.label(egui::RichText::new(text).font(semibold(12.5)).color(t.text_secondary));
     ui.add_space(12.0);
 }
 
 /// A card with an icon tile, a title and a line under it; true when chosen.
-fn action_card(ui: &mut Ui, t: &Tokens, icon: Icon, title: &str, sub: &str) -> bool {
-    let (r, mut resp) = ui.allocate_exact_size(vec2(260.0, 72.0), Sense::click());
+fn action_card(ui: &mut Ui, t: &Tokens, icon: Icon, title: &str, sub: &str, primary: bool) -> bool {
+    let (r, mut resp) = ui.allocate_exact_size(vec2(300.0, 84.0), Sense::click());
     a11y::button(&resp, title);
     // One line each inside the card; a long translation ends with an ellipsis, in full on hover.
-    let text_w = r.width() - 72.0;
-    let (title_shown, sub_shown) = (widgets::elide_font(ui, title, text_w, semibold(12.0)), widgets::elide(ui, sub, text_w));
+    let text_w = r.width() - 88.0;
+    let (title_shown, sub_shown) = (widgets::elide_font(ui, title, text_w, semibold(13.5)), widgets::elide_font(ui, sub, text_w, regular(11.5)));
     if title_shown != title || sub_shown != sub {
         resp = resp.on_hover_text(format!("{title}\n{sub}"));
     }
     card_frame(ui, t, r, &resp);
-    let ir = Rect::from_min_size(pos2(r.min.x + 16.0, r.center().y - 16.0), vec2(32.0, 32.0));
-    ui.painter().rect_filled(ir, CornerRadius::same(6), ACCENT);
-    icons::paint(ui.painter(), ir.shrink(8.0), icon, Color32::WHITE);
-    ui.painter().text(pos2(r.min.x + 60.0, r.center().y - 8.0), Align2::LEFT_CENTER, title_shown, semibold(12.0), t.text);
-    ui.painter().text(pos2(r.min.x + 60.0, r.center().y + 9.0), Align2::LEFT_CENTER, sub_shown, regular(11.0), t.text_secondary);
+    // The way to start in the accent; the others on a tint of it.
+    let ir = Rect::from_min_size(pos2(r.min.x + 18.0, r.center().y - 22.0), vec2(44.0, 44.0));
+    let (fill, ink) = if primary { (accent(), Color32::WHITE) } else { (t.accent.gamma_multiply(0.16), t.accent_text) };
+    ui.painter().rect_filled(ir, CornerRadius::same(9), fill);
+    icons::paint(ui.painter(), Rect::from_center_size(ir.center(), vec2(20.0, 20.0)), icon, ink);
+    ui.painter().text(pos2(r.min.x + 76.0, r.center().y - 9.0), Align2::LEFT_CENTER, title_shown, semibold(13.5), t.text);
+    ui.painter().text(pos2(r.min.x + 76.0, r.center().y + 10.0), Align2::LEFT_CENTER, sub_shown, regular(11.5), t.text_secondary);
     resp.clicked()
 }
 
@@ -335,8 +413,9 @@ fn recents(app: &mut FigApp, ui: &mut Ui, t: &Tokens) {
     heading(ui, t, tr("Recents"));
     let (mut new_file, mut open) = (false, false);
     ui.horizontal(|ui| {
-        new_file = action_card(ui, t, Icon::Plus, tr("New design file"), tr("Start from a blank canvas"));
-        open = action_card(ui, t, Icon::Page, tr("Open file"), tr("Open .figcraft, .svg or images"));
+        ui.spacing_mut().item_spacing.x = 16.0;
+        new_file = action_card(ui, t, Icon::Plus, tr("New design file"), tr("Start from a blank canvas"), true);
+        open = action_card(ui, t, Icon::Page, tr("Open file"), tr("Open .figcraft, .svg or images"), false);
     });
     if new_file {
         app.run("file.new", json!({}));
@@ -389,7 +468,7 @@ fn open_files(app: &mut FigApp, ui: &mut Ui, t: &Tokens, query: &str) -> usize {
     for (i, d) in app.session.docs.iter().enumerate().filter(|(_, d)| hit(d)) {
         let detail = d.path.as_deref().unwrap_or_default();
         let row =
-            FileRow { mark: Some((Icon::Logo, ACCENT)), name: &d.doc.name, ink: t.text, detail, detail_size: 11.0, detail_ink: t.text_secondary };
+            FileRow { mark: Some((Icon::Logo, accent())), name: &d.doc.name, ink: t.text, detail, detail_size: 11.0, detail_ink: t.text_secondary };
         if listed(ui, t, ui.id().with(("open", d.uid)), 36.0, &row) {
             switch = Some(i);
         }
@@ -421,11 +500,12 @@ fn getting_started(app: &mut FigApp, ui: &mut Ui, t: &Tokens) {
     let columns = if width >= 720.0 { 3 } else { 1 };
     let (cell_w, cell_h) = ((width - 32.0) / columns as f32, 62.0);
     let rows = TIPS.len().div_ceil(columns);
-    let (rect, _) = ui.allocate_exact_size(vec2(width, 52.0 + rows as f32 * cell_h + 8.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 60.0 + rows as f32 * cell_h + 12.0), Sense::hover());
     a11y::container_bounds(ui, rect);
-    ui.painter().rect_filled(rect, CornerRadius::same(8), t.field);
-    ui.painter().text(rect.min + vec2(16.0, 24.0), Align2::LEFT_CENTER, tr("Getting started"), semibold(13.0), t.text);
-    let close = Rect::from_min_size(pos2(rect.max.x - 36.0, rect.min.y + 12.0), vec2(24.0, 24.0));
+    ui.painter().rect_filled(rect, CornerRadius::same(12), t.card);
+    ui.painter().rect_stroke(rect, CornerRadius::same(12), Stroke::new(1.0, t.card_border), StrokeKind::Inside);
+    ui.painter().text(rect.min + vec2(20.0, 28.0), Align2::LEFT_CENTER, tr("Getting started"), semibold(14.0), t.text);
+    let close = Rect::from_min_size(pos2(rect.max.x - 40.0, rect.min.y + 16.0), vec2(24.0, 24.0));
     if widgets::icon_button_at(
         ui,
         ui.id().with("tips_close"),
@@ -438,13 +518,13 @@ fn getting_started(app: &mut FigApp, ui: &mut Ui, t: &Tokens) {
     }
     for (i, (title, line, command)) in TIPS.into_iter().enumerate() {
         let cell = Rect::from_min_size(
-            rect.min + vec2(16.0 + (i % columns) as f32 * cell_w, 48.0 + (i / columns) as f32 * cell_h),
+            rect.min + vec2(20.0 + (i % columns) as f32 * cell_w, 56.0 + (i / columns) as f32 * cell_h),
             vec2(cell_w - 16.0, cell_h),
         );
-        let badge = Rect::from_min_size(cell.min + vec2(0.0, 2.0), vec2(20.0, 20.0));
-        ui.painter().rect_filled(badge, CornerRadius::same(10), t.panel);
-        ui.painter().text(badge.center(), Align2::CENTER_CENTER, (i + 1).to_string(), semibold(10.0), t.text_secondary);
-        let x = cell.min.x + 30.0;
+        let badge = Rect::from_min_size(cell.min + vec2(0.0, 1.0), vec2(22.0, 22.0));
+        ui.painter().rect_filled(badge, CornerRadius::same(8), t.accent.gamma_multiply(0.16));
+        ui.painter().text(badge.center(), Align2::CENTER_CENTER, (i + 1).to_string(), semibold(10.5), t.accent_text);
+        let x = cell.min.x + 32.0;
         let title_end = ui.painter().text(pos2(x, cell.min.y + 12.0), Align2::LEFT_CENTER, tr(title), semibold(12.0), t.text).max.x;
         if let Some(key) = shortcut(command) {
             ui.painter().text(pos2(title_end + 8.0, cell.min.y + 12.0), Align2::LEFT_CENTER, key, regular(11.0), t.text_tertiary);

@@ -107,7 +107,7 @@ pub fn show(app: &mut FigApp, ctx: &Context) {
         ui.horizontal(|ui| {
             crate::dialogs::tab_strip(ui, &t, &Group::ALL, |g| tr(g.label()), &mut app.ui.shortcuts_tab);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let r = ui.add(egui::TextEdit::singleline(&mut app.ui.shortcuts_query).hint_text(tr("Search shortcuts")).desired_width(180.0));
+                let r = crate::widgets::text_input(ui, egui::Id::new("shortcuts_search"), &mut app.ui.shortcuts_query, 200.0, tr("Search shortcuts"));
                 crate::widgets::select_all_on_focus(ui, &r, &app.ui.shortcuts_query);
             });
         });

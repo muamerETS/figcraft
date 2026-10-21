@@ -1,6 +1,8 @@
-//! Design tokens (Paper light and Midnight dark, indigo accent) and fonts.
+//! Design tokens (Paper light and Midnight dark with an indigo accent, or the Classic grey palette
+//! with a blue one) and fonts.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use egui::{Color32, Context, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle, Visuals};
 
@@ -48,9 +50,35 @@ pub struct Tokens {
 }
 
 /// Indigo: 5.6:1 with white text on it.
-pub const ACCENT: Color32 = Color32::from_rgb(0x5B, 0x4C, 0xF0);
+const INDIGO: Color32 = Color32::from_rgb(0x5B, 0x4C, 0xF0);
 /// Fuchsia, far enough from the indigo accent that components never read as selected.
-pub const COMPONENT: Color32 = Color32::from_rgb(0xC0, 0x26, 0xD3);
+const FUCHSIA: Color32 = Color32::from_rgb(0xC0, 0x26, 0xD3);
+/// The Classic palette's accent and components.
+const BLUE: Color32 = Color32::from_rgb(0x0D, 0x99, 0xFF);
+const VIOLET: Color32 = Color32::from_rgb(0x97, 0x47, 0xFF);
+
+/// The Classic palette is in use (Preferences ▸ Appearance): one interface per process.
+static CLASSIC: AtomicBool = AtomicBool::new(false);
+
+/// Use the Classic palette (`true`) or the default one; [`Tokens::light`] and [`Tokens::dark`]
+/// follow it.
+pub fn set_classic(on: bool) {
+    CLASSIC.store(on, Ordering::Relaxed);
+}
+
+pub fn classic() -> bool {
+    CLASSIC.load(Ordering::Relaxed)
+}
+
+/// The selection, focus and primary buttons' colour of the palette in use.
+pub fn accent() -> Color32 {
+    if classic() { BLUE } else { INDIGO }
+}
+
+/// Components and instances, in the palette in use.
+pub fn component() -> Color32 {
+    if classic() { VIOLET } else { FUCHSIA }
+}
 /// Handoff status badges (white text on these, in both themes).
 pub const DEV_READY: Color32 = Color32::from_rgb(0x14, 0xAE, 0x5C);
 pub const DEV_CHANGED: Color32 = Color32::from_rgb(0xD9, 0x7A, 0x06);
@@ -58,6 +86,14 @@ pub const DEV_COMPLETED: Color32 = Color32::from_rgb(0x6E, 0x6E, 0x73);
 
 impl Tokens {
     pub fn light() -> Self {
+        if classic() { Self::classic_light() } else { Self::paper() }
+    }
+
+    pub fn dark() -> Self {
+        if classic() { Self::classic_dark() } else { Self::midnight() }
+    }
+
+    fn paper() -> Self {
         Self {
             dark: false,
             bg: Color32::from_rgb(0xFF, 0xFF, 0xFF),
@@ -77,13 +113,13 @@ impl Tokens {
             field_hover_border: Color32::from_rgb(0xE2, 0xE5, 0xEA),
             card: Color32::from_rgb(0xF8, 0xF9, 0xFB),
             card_border: Color32::from_rgb(0xED, 0xEF, 0xF2),
-            accent: ACCENT,
+            accent: INDIGO,
             accent_hover: Color32::from_rgb(0x4A, 0x3B, 0xDB),
             // 7.3:1 on white, 6.1:1 on selected rows: WCAG AA for text.
             accent_text: Color32::from_rgb(0x4B, 0x3B, 0xD6),
             selected_row: Color32::from_rgb(0xEC, 0xEA, 0xFF),
             selected_row_child: Color32::from_rgb(0xF6, 0xF5, 0xFF),
-            component: COMPONENT,
+            component: FUCHSIA,
             component_row: Color32::from_rgb(0xFB, 0xE8, 0xFD),
             danger: Color32::from_rgb(0xE5, 0x48, 0x4D),
             success: Color32::from_rgb(0x12, 0xA1, 0x5E),
@@ -92,15 +128,15 @@ impl Tokens {
             tab_bar: Color32::from_rgb(0xE9, 0xEB, 0xEF),
             tab_active: Color32::from_rgb(0xFF, 0xFF, 0xFF),
             shadow: Color32::from_rgba_unmultiplied(0x1B, 0x23, 0x30, 30),
-            menu: Color32::from_rgb(0x16, 0x18, 0x1D),
-            menu_text: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            menu_hover: ACCENT,
-            menu_dim: Color32::from_rgb(0x9A, 0xA0, 0xAB),
+            menu: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            menu_text: Color32::from_rgb(0x14, 0x17, 0x1D),
+            menu_hover: Color32::from_rgb(0xEE, 0xEC, 0xFF),
+            menu_dim: Color32::from_rgb(0x5B, 0x62, 0x70),
             focus: Color32::from_rgb(0x4B, 0x3B, 0xD6),
         }
     }
 
-    pub fn dark() -> Self {
+    fn midnight() -> Self {
         Self {
             dark: true,
             bg: Color32::from_rgb(0x15, 0x18, 0x1E),
@@ -120,7 +156,7 @@ impl Tokens {
             field_hover_border: Color32::from_rgb(0x34, 0x3A, 0x47),
             card: Color32::from_rgb(0x1A, 0x1D, 0x24),
             card_border: Color32::from_rgb(0x24, 0x29, 0x34),
-            accent: ACCENT,
+            accent: INDIGO,
             accent_hover: Color32::from_rgb(0x6E, 0x61, 0xFF),
             // 8.1:1 on the panels, 6.3:1 on selected rows.
             accent_text: Color32::from_rgb(0xAD, 0xA5, 0xFF),
@@ -135,12 +171,104 @@ impl Tokens {
             tab_bar: Color32::from_rgb(0x0E, 0x10, 0x14),
             tab_active: Color32::from_rgb(0x15, 0x18, 0x1E),
             shadow: Color32::from_black_alpha(110),
-            menu: Color32::from_rgb(0x0E, 0x10, 0x14),
-            menu_text: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            menu_hover: ACCENT,
-            menu_dim: Color32::from_rgb(0x9A, 0xA0, 0xAB),
+            menu: Color32::from_rgb(0x1A, 0x1D, 0x24),
+            menu_text: Color32::from_rgb(0xEC, 0xEE, 0xF3),
+            menu_hover: Color32::from_rgb(0x2C, 0x2C, 0x58),
+            menu_dim: Color32::from_rgb(0xA3, 0xAA, 0xB8),
             focus: Color32::from_rgb(0xAD, 0xA5, 0xFF),
         }
+    }
+
+    fn classic_light() -> Self {
+        Self {
+            dark: false,
+            bg: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            panel: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            canvas: Color32::from_rgb(0xF5, 0xF5, 0xF5),
+            border: Color32::from_rgb(0xE6, 0xE6, 0xE6),
+            border_strong: Color32::from_rgb(0xD9, 0xD9, 0xD9),
+            text: Color32::from_rgb(0x1E, 0x1E, 0x1E),
+            text_secondary: Color32::from_rgb(0x6E, 0x6E, 0x6E),
+            text_tertiary: Color32::from_rgb(0xB3, 0xB3, 0xB3),
+            icon: Color32::from_rgb(0x1E, 0x1E, 0x1E),
+            icon_secondary: Color32::from_rgb(0x75, 0x75, 0x75),
+            hover: Color32::from_rgb(0xF5, 0xF5, 0xF5),
+            pressed: Color32::from_rgb(0xE6, 0xE6, 0xE6),
+            field: Color32::from_rgb(0xF5, 0xF5, 0xF5),
+            field_hover_border: Color32::from_rgb(0xE6, 0xE6, 0xE6),
+            card: Color32::from_rgb(0xFA, 0xFA, 0xFA),
+            card_border: Color32::from_rgb(0xEE, 0xEE, 0xEE),
+            accent: BLUE,
+            accent_hover: Color32::from_rgb(0x00, 0x7B, 0xE5),
+            accent_text: Color32::from_rgb(0x00, 0x6B, 0xD1),
+            selected_row: Color32::from_rgb(0xE5, 0xF4, 0xFF),
+            selected_row_child: Color32::from_rgb(0xF2, 0xF9, 0xFF),
+            component: VIOLET,
+            component_row: Color32::from_rgb(0xF1, 0xE9, 0xFF),
+            danger: Color32::from_rgb(0xF2, 0x48, 0x22),
+            success: Color32::from_rgb(0x14, 0xAE, 0x5C),
+            warning: Color32::from_rgb(0xFF, 0xCD, 0x29),
+            guide: Color32::from_rgb(0xF2, 0x48, 0x22),
+            tab_bar: Color32::from_rgb(0xE8, 0xE8, 0xE8),
+            tab_active: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            shadow: Color32::from_black_alpha(40),
+            menu: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            menu_text: Color32::from_rgb(0x1E, 0x1E, 0x1E),
+            menu_hover: Color32::from_rgb(0xE5, 0xF4, 0xFF),
+            menu_dim: Color32::from_rgb(0x6E, 0x6E, 0x6E),
+            focus: Color32::from_rgb(0x00, 0x6B, 0xD1),
+        }
+    }
+
+    fn classic_dark() -> Self {
+        Self {
+            dark: true,
+            bg: Color32::from_rgb(0x2C, 0x2C, 0x2C),
+            panel: Color32::from_rgb(0x2C, 0x2C, 0x2C),
+            canvas: Color32::from_rgb(0x1E, 0x1E, 0x1E),
+            border: Color32::from_rgb(0x44, 0x44, 0x44),
+            border_strong: Color32::from_rgb(0x55, 0x55, 0x55),
+            text: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            text_secondary: Color32::from_rgb(0xB3, 0xB3, 0xB3),
+            text_tertiary: Color32::from_rgb(0x75, 0x75, 0x75),
+            icon: Color32::from_rgb(0xF5, 0xF5, 0xF5),
+            icon_secondary: Color32::from_rgb(0xB3, 0xB3, 0xB3),
+            hover: Color32::from_rgb(0x38, 0x38, 0x38),
+            pressed: Color32::from_rgb(0x44, 0x44, 0x44),
+            field: Color32::from_rgb(0x38, 0x38, 0x38),
+            field_hover_border: Color32::from_rgb(0x4D, 0x4D, 0x4D),
+            card: Color32::from_rgb(0x32, 0x32, 0x32),
+            card_border: Color32::from_rgb(0x3C, 0x3C, 0x3C),
+            accent: BLUE,
+            accent_hover: Color32::from_rgb(0x3D, 0xAD, 0xFF),
+            accent_text: Color32::from_rgb(0x7C, 0xC4, 0xF8),
+            selected_row: Color32::from_rgb(0x2A, 0x45, 0x5C),
+            selected_row_child: Color32::from_rgb(0x2D, 0x37, 0x41),
+            component: Color32::from_rgb(0xD2, 0x7C, 0xFF),
+            component_row: Color32::from_rgb(0x3E, 0x30, 0x52),
+            danger: Color32::from_rgb(0xF2, 0x48, 0x22),
+            success: Color32::from_rgb(0x14, 0xAE, 0x5C),
+            warning: Color32::from_rgb(0xFF, 0xCD, 0x29),
+            guide: Color32::from_rgb(0xF2, 0x48, 0x22),
+            tab_bar: Color32::from_rgb(0x1E, 0x1E, 0x1E),
+            tab_active: Color32::from_rgb(0x2C, 0x2C, 0x2C),
+            shadow: Color32::from_black_alpha(90),
+            menu: Color32::from_rgb(0x1E, 0x1E, 0x1E),
+            menu_text: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            menu_hover: Color32::from_rgb(0x2A, 0x45, 0x5C),
+            menu_dim: Color32::from_rgb(0xB3, 0xB3, 0xB3),
+            focus: BLUE,
+        }
+    }
+
+    /// A field or sample well on a menu.
+    pub fn menu_field(&self) -> Color32 {
+        if self.dark { Color32::from_white_alpha(14) } else { self.field }
+    }
+
+    /// The line between groups of menu items.
+    pub fn menu_line(&self) -> Color32 {
+        if self.dark { Color32::from_white_alpha(22) } else { self.border }
     }
 
     pub fn get(ctx: &Context) -> Tokens {
@@ -194,8 +322,8 @@ fn visuals(t: Tokens) -> Visuals {
     v.faint_bg_color = t.hover;
     v.override_text_color = Some(t.text);
     v.window_stroke = Stroke::new(1.0, t.border);
-    v.window_corner_radius = egui::CornerRadius::same(14);
-    v.menu_corner_radius = egui::CornerRadius::same(14);
+    v.window_corner_radius = egui::CornerRadius::same(10);
+    v.menu_corner_radius = egui::CornerRadius::same(10);
     v.selection.bg_fill = t.accent.gamma_multiply(0.3);
     v.selection.stroke = Stroke::new(1.0, t.accent);
     v.hyperlink_color = t.accent_text;
@@ -214,27 +342,12 @@ fn visuals(t: Tokens) -> Visuals {
     v.widgets.active.bg_fill = t.pressed;
     v.widgets.active.weak_bg_fill = t.pressed;
     v.widgets.active.bg_stroke = Stroke::new(1.0, t.accent);
+    // The title bar of the active window: the window's own colour.
+    v.widgets.open.weak_bg_fill = t.panel;
     v.popup_shadow = egui::Shadow { offset: [0, 6], blur: 20, spread: 0, color: t.shadow };
     v.window_shadow = egui::Shadow { offset: [0, 12], blur: 32, spread: 0, color: t.shadow };
     v.text_cursor.stroke = Stroke::new(1.0, t.accent);
     v
-}
-
-/// Draw `f` with the dark tokens and visuals: controls on the dark popovers (the style browser's
-/// style editor), whichever theme the app shows.
-pub fn on_dark<R>(ui: &mut egui::Ui, f: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    let ctx = ui.ctx().clone();
-    let saved = Tokens::get(&ctx);
-    let dark = Tokens::dark();
-    ctx.data_mut(|d| d.insert_temp(tokens_id(), dark));
-    let r = ui
-        .scope(|ui| {
-            *ui.visuals_mut() = visuals(dark);
-            f(ui)
-        })
-        .inner;
-    ctx.data_mut(|d| d.insert_temp(tokens_id(), saved));
-    r
 }
 
 /// UI fonts: Inter (from the craft-fonts build input) when present, else egui's defaults; with
@@ -401,7 +514,8 @@ mod tests {
                 ("accent text on selected row", t.accent_text, t.selected_row, 4.5),
                 ("white on accent", Color32::WHITE, t.accent, 4.5),
                 ("menu text on menu", t.menu_text, t.menu, 4.5),
-                ("white on menu hover", Color32::WHITE, t.menu_hover, 4.5),
+                ("menu text on menu hover", t.menu_text, t.menu_hover, 4.5),
+                ("menu shortcuts on menu", t.menu_dim, t.menu, 4.5),
                 ("component on panel", t.component, t.panel, 4.5),
                 ("focus ring on panel", t.focus, t.panel, 3.0),
                 ("focus ring on canvas", t.focus, t.canvas, 3.0),

@@ -19,7 +19,7 @@ use crate::FigApp;
 use crate::a11y;
 use crate::i18n::{tr, tr_noop, trf, trn};
 use crate::icons::{self, Icon};
-use crate::theme::{ACCENT, Tokens, regular, semibold};
+use crate::theme::{Tokens, accent, regular, semibold};
 use crate::widgets;
 
 /// The gap between cards, across and down.
@@ -738,7 +738,7 @@ fn file_icon(ui: &Ui, t: &Tokens, center: egui::Pos2, path: &str) {
     let r = Rect::from_center_size(center, vec2(16.0, 16.0));
     match FileKind::of(Path::new(path)) {
         FileKind::FigCraft | FileKind::Fig => {
-            ui.painter().rect_filled(r, CornerRadius::same(4), ACCENT);
+            ui.painter().rect_filled(r, CornerRadius::same(4), accent());
             icons::paint(ui.painter(), r.shrink(3.0), Icon::Logo, Color32::WHITE);
         }
         kind => {
@@ -800,14 +800,14 @@ fn grid(ui: &mut Ui, t: &Tokens, recents: &mut Recents, files: &[Shown], now: u6
 /// A card while its file is being looked at: grey blocks where the picture, icon and text go.
 fn skeleton(ui: &Ui, t: &Tokens, rect: Rect, picture_h: f32) {
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(8), t.panel);
+    p.rect_filled(rect, CornerRadius::same(10), t.panel);
     let picture = Rect::from_min_size(rect.min, vec2(rect.width(), picture_h)).shrink(1.0);
-    p.rect_filled(picture, CornerRadius { nw: 7, ne: 7, sw: 0, se: 0 }, t.field);
+    p.rect_filled(picture, CornerRadius { nw: 13, ne: 13, sw: 0, se: 0 }, t.field);
     let y = picture.max.y + FOOTER_H / 2.0;
     p.rect_filled(Rect::from_center_size(pos2(rect.min.x + 24.0, y), vec2(16.0, 16.0)), CornerRadius::same(4), t.field);
     p.rect_filled(Rect::from_min_size(pos2(rect.min.x + 44.0, y - 11.0), vec2(rect.width() * 0.45, 9.0)), CornerRadius::same(3), t.field);
     p.rect_filled(Rect::from_min_size(pos2(rect.min.x + 44.0, y + 4.0), vec2(rect.width() * 0.3, 8.0)), CornerRadius::same(3), t.field);
-    p.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0, t.border), StrokeKind::Inside);
+    p.rect_stroke(rect, CornerRadius::same(10), Stroke::new(1.0, t.border), StrokeKind::Inside);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -825,9 +825,12 @@ fn card(
     now: u64,
 ) {
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(8), if resp.hovered() { t.hover } else { t.panel });
+    if resp.hovered() {
+        widgets::soft_shadow(p, rect, 14);
+    }
+    p.rect_filled(rect, CornerRadius::same(10), t.card);
     let area = Rect::from_min_size(rect.min, vec2(rect.width(), picture_h)).shrink(1.0);
-    let top = CornerRadius { nw: 7, ne: 7, sw: 0, se: 0 };
+    let top = CornerRadius { nw: 13, ne: 13, sw: 0, se: 0 };
     p.rect_filled(area, top, t.canvas);
     match picture {
         Some((page, texture, _)) if stat.exists && (page.is_some() || texture.is_some()) => {
@@ -856,11 +859,16 @@ fn card(
     let detail = widgets::elide_font(ui, &file.detail(now), w, regular(11.5));
     p.text(pos2(x, y + 9.0), Align2::LEFT_CENTER, detail, regular(11.5), t.text_secondary);
     if selected {
-        p.rect_stroke(rect, CornerRadius::same(8), Stroke::new(2.0, ACCENT), StrokeKind::Inside);
+        p.rect_stroke(rect, CornerRadius::same(10), Stroke::new(2.0, accent()), StrokeKind::Inside);
     } else {
-        p.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0, if resp.hovered() { t.border_strong } else { t.border }), StrokeKind::Inside);
+        p.rect_stroke(
+            rect,
+            CornerRadius::same(10),
+            Stroke::new(1.0, if resp.hovered() { t.accent.gamma_multiply(0.6) } else { t.card_border }),
+            StrokeKind::Inside,
+        );
         if resp.has_focus() {
-            p.rect_stroke(rect, CornerRadius::same(8), Stroke::new(2.0, t.focus), StrokeKind::Outside);
+            p.rect_stroke(rect, CornerRadius::same(10), Stroke::new(2.0, t.focus), StrokeKind::Outside);
         }
     }
 }

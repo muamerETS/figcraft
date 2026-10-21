@@ -83,9 +83,8 @@ fn window_button(k: usize) -> Pos2 {
     pos2(SIZE.x - 46.0 * (3 - k) as f32 + 23.0, crate::tabs::HEIGHT / 2.0)
 }
 
-/// Empty title bar space, right of the tabs.
-/// Right of the command bar (centred on the strip), left of the theme button.
-const EMPTY: Pos2 = pos2(1000.0, 20.0);
+/// Empty title bar space, right of the tabs and left of the tools before Share.
+const EMPTY: Pos2 = pos2(700.0, 20.0);
 
 #[test]
 fn window_buttons_minimise_maximise_and_close() {

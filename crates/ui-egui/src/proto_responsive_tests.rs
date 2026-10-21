@@ -69,8 +69,8 @@ fn without_a_device_a_responsive_frame_fills_the_window_at_100_percent() {
     let mut u = Ui::new(s);
     u.run("proto.present", json!({"start": w}));
     let p = presenter(&u);
-    // The window is 1440×900; the top bar and the presenter's own bar take the rest.
-    assert_eq!(size(&p["frameSize"]), (1440.0, 900.0 - f64::from(crate::tabs::HEIGHT) - 40.0), "{p}");
+    // The window is 1440×900; the top bar (which holds the presenter's controls) takes the rest.
+    assert_eq!(size(&p["frameSize"]), (1440.0, 900.0 - f64::from(crate::tabs::HEIGHT)), "{p}");
     assert_eq!(p["zoom"], json!(1.0));
     assert_eq!(size(&p["panRange"]), (0.0, 0.0));
     // Z has nothing to cycle: the size options don't apply.

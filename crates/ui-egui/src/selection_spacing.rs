@@ -69,7 +69,7 @@ pub fn panel(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId]) {
     }
     widgets::sublabels(ui, tr("Spacing"), None);
     let col = widgets::col_width(ui.available_width());
-    crate::right::row(ui, 32.0, |ui| {
+    crate::right::row(ui, crate::widgets::FIELD_ROW, |ui| {
         for (axis, key, icon, tip) in [
             (&layout.horizontal, "horizontal", Icon::DistributeH, tr("Horizontal spacing")),
             (&layout.vertical, "vertical", Icon::DistributeV, tr("Vertical spacing")),

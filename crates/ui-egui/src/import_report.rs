@@ -1,12 +1,12 @@
 //! The import report: what a successful `.fig`, REST JSON or SVG import left out or changed, shown
 //! in a dialog window after the file opens, so the notes don't vanish with a toast.
 
-use egui::RichText;
+use egui::{CornerRadius, RichText, Sense, vec2};
 use serde_json::{Value, json};
 
 use crate::FigApp;
 use crate::i18n::{tr, trn, try_tr};
-use crate::theme::{Tokens, regular};
+use crate::theme::{Tokens, regular, semibold};
 
 /// A report stays small even when a damaged input produces many or very long notes.
 pub const MAX_NOTES: usize = 500;
@@ -130,27 +130,37 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
     let mut open = true;
     let mut close_clicked = false;
     crate::dialogs::window(tr("Import report"), ctx).open(&mut open).show(ctx, |ui| {
-        ui.set_width(420.0);
-        ui.label(RichText::new(&report.name).strong());
-        ui.label(if report.appended {
+        const W: f32 = 440.0;
+        ui.set_width(W);
+        ui.spacing_mut().item_spacing.y = 8.0;
+        let how = if report.appended {
             tr("Pages added to the document")
         } else if report.placed {
             tr("Placed on the current page")
         } else {
             tr("Opened as a new document")
-        });
+        };
+        crate::dialogs::dialog_lead(ui, W, crate::dialogs::Mark::Icon(crate::icons::Icon::Page), t.accent, &report.name, how);
         let counts: Vec<String> = [(tr("Pages"), report.pages), (tr("Layers"), report.layers), (tr("Images"), report.images)]
             .into_iter()
             .filter_map(|(label, count)| count.map(|n| format!("{label}: {n}")))
             .collect();
         if !counts.is_empty() {
-            ui.label(counts.join(" · "));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for c in counts {
+                    let g = ui.painter().layout_no_wrap(c, semibold(11.0), t.text_secondary);
+                    let (r, _) = ui.allocate_exact_size(g.size() + vec2(16.0, 10.0), Sense::hover());
+                    ui.painter().rect_filled(r, CornerRadius::same(6), t.field);
+                    ui.painter().galley(r.min + vec2(8.0, 5.0), g, t.text_secondary);
+                }
+            });
         }
-        ui.add_space(8.0);
         if report.notes.is_empty() {
-            ui.label(tr("No compatibility warnings reported"));
+            ui.label(RichText::new(tr("No compatibility warnings reported")).font(regular(11.5)).color(t.text_secondary));
         } else {
-            ui.label(RichText::new(tr("Compatibility notes")).strong());
+            ui.add_space(4.0);
+            ui.label(RichText::new(tr("Compatibility notes")).font(semibold(12.0)).color(t.text));
             ui.label(
                 RichText::new(tr(
                     "FigCraft doesn't support every feature of these files yet. The notes list what was left out or changed in the imported copy; the original file is unchanged.",
@@ -158,20 +168,22 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
                 .color(t.text_secondary)
                 .font(regular(11.0)),
             );
-            ui.add_space(4.0);
-            egui::ScrollArea::vertical().id_salt("import_report_notes").max_height(260.0).show(ui, |ui| {
-                for note in &report.shown {
-                    ui.label(note);
-                    ui.add_space(4.0);
-                }
+            crate::dialogs::list_card(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("import_report_notes").max_height(240.0).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    for note in &report.shown {
+                        ui.label(RichText::new(format!("•  {note}")).font(regular(11.5)).color(t.text));
+                    }
+                });
             });
         }
         let omitted = report.note_count.saturating_sub(report.notes.len());
         if omitted > 0 {
-            ui.label(trn("{n} more notes omitted from this report", omitted, &[]));
+            ui.label(RichText::new(trn("{n} more notes omitted from this report", omitted, &[])).font(regular(11.0)).color(t.text_secondary));
         }
-        ui.add_space(12.0);
-        close_clicked = crate::widgets::button(ui, tr("Close"), true, true).clicked();
+        crate::dialogs::dialog_buttons(ui, W, |ui| {
+            close_clicked = crate::widgets::button(ui, tr("Close"), true, true).clicked();
+        });
     });
     if !open || close_clicked {
         app.ui.import_report = None;

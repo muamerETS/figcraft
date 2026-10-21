@@ -23,17 +23,17 @@ use crate::theme::{Tokens, regular, semibold};
 use crate::widgets;
 
 /// Content width of the popover.
-const W: f32 = 240.0;
+const W: f32 = 264.0;
 /// Height of a list row.
-const ROW_H: f32 = 26.0;
+const ROW_H: f32 = 30.0;
 /// Height of a text style's list row (its name in its own font).
-const TEXT_ROW_H: f32 = 32.0;
+const TEXT_ROW_H: f32 = 46.0;
 /// Side of a swatch in the grid view.
 const SWATCH: f32 = 24.0;
 /// A text style's tile in the grid view.
 const TILE: egui::Vec2 = egui::vec2(54.0, 44.0);
 /// Largest size a text style's name previews at in the list (the grid's "Ag" goes to 24).
-const LIST_PREVIEW_MAX: f64 = 16.0;
+const LIST_PREVIEW_MAX: f64 = 15.0;
 
 /// A style slot on a layer: what a style picker lists and what a style chip shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,7 +209,7 @@ pub fn chip(app: &mut FigApp, ui: &mut Ui, doc: &Document, ids: &[NodeId], slot:
         _ => return,
     };
     let mut open_it = false;
-    crate::right::row(ui, 32.0, |ui| {
+    crate::right::row(ui, crate::widgets::FIELD_ROW, |ui| {
         let w = (ui.available_width() - 32.0).max(40.0);
         let (r, resp) = ui.allocate_exact_size(vec2(w, widgets::FIELD_H), Sense::click());
         if resp.hovered() {
@@ -292,27 +292,69 @@ fn menu_icon(ui: &mut Ui, rect: Rect, icon: Icon, tip: &str, on: bool) -> Respon
     let t = Tokens::get(ui.ctx());
     let resp = ui.interact(rect, ui.id().with(("style_picker_btn", tip)), Sense::click()).tip(tip);
     if on || resp.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(5), t.menu_hover);
+        ui.painter().rect_filled(rect, CornerRadius::same(6), t.menu_hover);
     }
-    icons::paint(ui.painter(), rect.shrink(5.0), icon, t.menu_text);
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(rect.center(), vec2(14.0, 14.0)),
+        icon,
+        if on || resp.hovered() { t.menu_text } else { t.menu_dim },
+    );
     resp
 }
 
-/// A text button on the dark popover.
-fn menu_button(ui: &mut Ui, label: &str) -> Response {
+/// A text button on the popover: outlined, or (`danger`) a plain button in the danger colour.
+fn menu_button(ui: &mut Ui, label: &str, danger: bool) -> Response {
     let t = Tokens::get(ui.ctx());
-    let galley = ui.painter().layout_no_wrap(label.to_string(), regular(11.0), t.menu_text);
-    let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 20.0, widgets::FIELD_H), Sense::click());
-    ui.painter().rect_filled(rect, CornerRadius::same(5), if resp.hovered() { t.menu_hover } else { Color32::TRANSPARENT });
-    ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.menu_dim), egui::StrokeKind::Inside);
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, regular(11.0), t.menu_text);
+    let ink = if danger { t.danger } else { t.menu_text };
+    let galley = ui.painter().layout_no_wrap(label.to_string(), semibold(11.5), ink);
+    let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 24.0, widgets::FIELD_H), Sense::click());
+    let hover = if danger { t.danger.gamma_multiply(0.12) } else { t.menu_hover };
+    ui.painter().rect_filled(rect, CornerRadius::same(7), if resp.hovered() { hover } else { Color32::TRANSPARENT });
+    if !danger {
+        ui.painter().rect_stroke(rect, CornerRadius::same(7), Stroke::new(1.0, t.menu_line()), egui::StrokeKind::Inside);
+    }
+    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, ink);
     resp
 }
 
-/// A dim caption on the popover.
-fn caption(ui: &mut Ui, text: &str) {
+/// A section's title on the popover, with room above it, and `aside` (dim) at the row's end.
+fn caption(ui: &mut Ui, text: &str, aside: &str) {
     let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(text).font(regular(10.0)).color(t.menu_dim));
+    ui.add_space(10.0);
+    let (r, _) = ui.allocate_exact_size(vec2(W, 14.0), Sense::hover());
+    ui.painter().text(pos2(r.min.x + 2.0, r.center().y), Align2::LEFT_CENTER, text.to_uppercase(), semibold(10.0), t.menu_dim);
+    if !aside.is_empty() {
+        let shown = widgets::elide_font(ui, aside, W * 0.5, regular(10.5));
+        ui.painter().text(pos2(r.max.x - 2.0, r.center().y), Align2::RIGHT_CENTER, shown, regular(10.5), t.menu_dim);
+    }
+    ui.add_space(6.0);
+}
+
+/// A thin rule between the popover's sections.
+fn rule(ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
+    ui.add_space(10.0);
+    let (line, _) = ui.allocate_exact_size(vec2(W, 1.0), Sense::hover());
+    ui.painter().hline(line.x_range(), line.center().y, Stroke::new(1.0, t.menu_line()));
+}
+
+/// A field's name above it.
+fn field_label(ui: &mut Ui, text: &str) {
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(text).font(semibold(10.5)).color(t.menu_dim));
+    ui.add_space(4.0);
+}
+
+/// What there is nothing of yet, on a card with the slot's icon.
+fn empty_note(ui: &mut Ui, icon: Icon, text: &str) {
+    let t = Tokens::get(ui.ctx());
+    let galley = ui.painter().layout(text.to_string(), regular(11.0), t.menu_dim, W - 52.0);
+    let (r, _) = ui.allocate_exact_size(vec2(W, (galley.size().y + 24.0).max(48.0)), Sense::hover());
+    ui.painter().rect_filled(r, CornerRadius::same(8), t.menu_field());
+    let tile = Rect::from_min_size(pos2(r.min.x + 10.0, r.center().y - 14.0), vec2(28.0, 28.0));
+    widgets::icon_tile(ui.painter(), tile, icon, t.accent, t.accent_text, 14.0);
+    ui.painter().galley(pos2(tile.max.x + 10.0, r.center().y - galley.size().y / 2.0), galley, t.menu_dim);
 }
 
 /// The folder part of a style name ("Brand/Blue/500" → "Brand/Blue"), empty at the top level.
@@ -402,33 +444,28 @@ fn style_row(ui: &mut Ui, s: &Style, key: Key, slot: StyleSlot, applied: bool, e
     let t = Tokens::get(ui.ctx());
     let h = if slot == StyleSlot::Text { TEXT_ROW_H } else { ROW_H };
     let (r, resp) = ui.allocate_exact_size(vec2(W, h), Sense::click());
-    let edit_r = Rect::from_center_size(pos2(r.max.x - 14.0, r.center().y), vec2(22.0, 22.0));
+    let edit_r = Rect::from_center_size(pos2(r.max.x - 15.0, r.center().y), vec2(24.0, 24.0));
     let hovered = resp.hovered() || ui.rect_contains_pointer(edit_r);
     if hovered {
-        ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_hover);
+        ui.painter().rect_filled(r.shrink2(vec2(0.0, 1.0)), CornerRadius::same(7), t.menu_hover);
     }
     match text_def(s) {
         Some(def) => {
-            let meta = text_meta(def);
-            let meta_w = ui.painter().layout_no_wrap(meta.clone(), regular(10.0), t.menu_dim).size().x;
-            ui.painter().text(
-                pos2(edit_r.min.x - 4.0, r.center().y),
-                Align2::RIGHT_CENTER,
-                meta,
-                regular(10.0),
-                if hovered { t.menu_text } else { t.menu_dim },
-            );
-            let max_w = edit_r.min.x - 12.0 - meta_w - (r.min.x + 8.0);
-            text_sample(ui, def, leaf(&s.name), LIST_PREVIEW_MAX, pos2(r.min.x + 8.0, r.center().y), max_w, h - 4.0, &mut out.budget);
+            // The name in its own font, and under it the font and the size.
+            let max_w = edit_r.min.x - 8.0 - (r.min.x + 10.0);
+            text_sample(ui, def, leaf(&s.name), LIST_PREVIEW_MAX, pos2(r.min.x + 10.0, r.min.y + 15.0), max_w, 22.0, &mut out.budget);
+            let meta = format!("{} {} · {}", def.font_family, def.font_style, text_meta(def));
+            let shown = widgets::elide_font(ui, &meta, max_w, regular(10.5));
+            ui.painter().text(pos2(r.min.x + 10.0, r.max.y - 11.0), Align2::LEFT_CENTER, shown, regular(10.5), t.menu_dim);
         }
         None => {
-            preview(ui, Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(14.0, 14.0)), s, slot);
-            crate::bidi::paint_name(ui.painter(), pos2(r.min.x + 26.0, r.center().y), leaf(&s.name), regular(11.0), t.menu_text, W - 64.0);
+            preview(ui, Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(18.0, 18.0)), s, slot);
+            crate::bidi::paint_name(ui.painter(), pos2(r.min.x + 34.0, r.center().y), leaf(&s.name), regular(12.0), t.menu_text, W - 72.0);
         }
     }
     // A style with variables bound inside it is marked (its users follow their own modes).
     if !s.bound.is_empty() {
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(edit_r.min.x - 10.0, r.center().y), vec2(11.0, 11.0)), Icon::Variable, t.menu_dim);
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(edit_r.min.x - 10.0, r.center().y), vec2(12.0, 12.0)), Icon::Variable, t.menu_dim);
     }
     if hovered && editable {
         if menu_icon(ui, edit_r, Icon::Adjust, tr("Edit style"), false).clicked() {
@@ -465,7 +502,7 @@ fn style_grid(ui: &mut Ui, list: &[(&Style, Key)], applied: Option<&Key>, editab
                 let (r, resp) = ui.allocate_exact_size(cell, Sense::click());
                 match text_def(s) {
                     Some(def) => {
-                        let fill = if resp.hovered() { t.menu_hover } else { Color32::from_white_alpha(14) };
+                        let fill = if resp.hovered() { t.menu_hover } else { t.menu_field() };
                         ui.painter().rect_filled(r, CornerRadius::same(5), fill);
                         let sample_w = ui.painter().layout_no_wrap("Ag".into(), regular(18.0), t.menu_text).size().x;
                         text_sample(
@@ -517,12 +554,12 @@ fn listing(app: &FigApp, ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut 
     let applied = link.clone().flatten().map(|id| Key::of_local(doc, &id));
     let grid = slot.has_grid() && app.ui.style_grid;
     // Header: title, then view toggle, detach and create.
-    let (hr, _) = ui.allocate_exact_size(vec2(W, 24.0), Sense::hover());
-    ui.painter().text(pos2(hr.min.x + 2.0, hr.center().y), Align2::LEFT_CENTER, slot.title(), semibold(11.0), t.menu_text);
-    let mut x = hr.max.x - 24.0;
+    let (hr, _) = ui.allocate_exact_size(vec2(W, 28.0), Sense::hover());
+    ui.painter().text(pos2(hr.min.x + 2.0, hr.center().y), Align2::LEFT_CENTER, slot.title(), semibold(13.0), t.menu_text);
+    let mut x = hr.max.x - 28.0;
     let mut slot_rect = || {
-        let r = Rect::from_min_size(pos2(x, hr.min.y), vec2(24.0, 24.0));
-        x -= 26.0;
+        let r = Rect::from_min_size(pos2(x, hr.min.y), vec2(28.0, 28.0));
+        x -= 30.0;
         r
     };
     let create_tip = if slot == StyleSlot::Text { tr("Create style from the selected text") } else { tr("Create style") };
@@ -538,13 +575,13 @@ fn listing(app: &FigApp, ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut 
             out.act = Some(Act::ToggleView);
         }
     }
-    ui.add_space(4.0);
-    let r = ui.add(egui::TextEdit::singleline(&mut p.query).hint_text(tr("Search")).font(regular(11.0)).desired_width(W));
+    ui.add_space(8.0);
+    let r = crate::widgets::text_input(ui, Id::new("style_picker_search"), &mut p.query, W, tr("Search"));
     crate::widgets::select_all_on_focus(ui, &r, &p.query);
     if !r.has_focus() && !crate::a11y::field_focused(ui.ctx()) {
         r.request_focus();
     }
-    ui.add_space(4.0);
+    ui.add_space(2.0);
     let q = p.query.trim().to_lowercase();
     let libs = crate::variable_ui::libraries(app, doc);
     let mut sources: Vec<(Option<&PublishedLibrary>, Vec<&Style>)> = vec![(None, offered(doc, None, slot, &q))];
@@ -559,7 +596,7 @@ fn listing(app: &FigApp, ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut 
     } else {
         Vec::new()
     };
-    egui::ScrollArea::vertical().id_salt("style_picker_scroll").max_height(320.0).show(ui, |ui| {
+    egui::ScrollArea::vertical().id_salt("style_picker_scroll").max_height(400.0).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         if sources.iter().all(|(_, l)| l.is_empty()) {
             let any = library::local_styles(doc).any(|s| slot.holds(&s.kind));
@@ -568,16 +605,19 @@ fn listing(app: &FigApp, ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut 
                 (false, StyleSlot::Text) => tr("No text styles yet. Click + to create one from the selected text."),
                 (false, _) => tr("No styles yet. Click + to create one from the selection."),
             };
-            caption(ui, hint);
+            ui.add_space(8.0);
+            empty_note(ui, slot.icon(), hint);
         }
         for (lib, list) in &sources {
             if let Some(l) = lib {
-                ui.add_space(6.0);
-                caption(ui, &l.manifest.name);
+                rule(ui);
+                caption(ui, &l.manifest.name, "");
             } else if list.is_empty() {
                 continue;
-            } else if sources.len() > 1 {
-                caption(ui, tr("This file"));
+            } else if sources.len() > 1 || !colors.is_empty() {
+                caption(ui, tr("This file"), "");
+            } else {
+                ui.add_space(8.0);
             }
             let lib_id = lib.map(|l| l.manifest.id.clone());
             for (f, styles) in by_folder(list.iter().copied()) {
@@ -588,14 +628,13 @@ fn listing(app: &FigApp, ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut 
                 if !f.is_empty() {
                     // Searching shows every match, folders open.
                     let closed = q.is_empty() && app.ui.style_folds.contains(&fold);
-                    let (r, resp) = ui.allocate_exact_size(vec2(W, ROW_H), Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_hover);
-                    }
-                    let chevron = Rect::from_center_size(pos2(r.min.x + 10.0, r.center().y), vec2(10.0, 10.0));
-                    icons::paint(ui.painter(), chevron, if closed { Icon::ChevronRight } else { Icon::Chevron }, t.menu_dim);
-                    let label = f.split('/').map(str::trim).collect::<Vec<_>>().join(" / ");
-                    crate::bidi::paint_name(ui.painter(), pos2(r.min.x + 22.0, r.center().y), &label, regular(11.0), t.menu_dim, W - 26.0);
+                    ui.add_space(6.0);
+                    let (r, resp) = ui.allocate_exact_size(vec2(W, 24.0), Sense::click());
+                    let ink = if resp.hovered() { t.menu_text } else { t.menu_dim };
+                    let label = f.split('/').map(str::trim).collect::<Vec<_>>().join(" / ").to_uppercase();
+                    let end = crate::bidi::paint_name(ui.painter(), pos2(r.min.x + 2.0, r.center().y), &label, semibold(10.0), ink, W - 30.0).max.x;
+                    let chevron = Rect::from_center_size(pos2(end + 10.0, r.center().y), vec2(9.0, 9.0));
+                    icons::paint(ui.painter(), chevron, if closed { Icon::ChevronRight } else { Icon::Chevron }, ink);
                     if resp.clicked() && q.is_empty() {
                         out.act = Some(Act::ToggleFolder(fold.clone()));
                     }
@@ -618,13 +657,24 @@ fn listing(app: &FigApp, ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut 
                 }
             }
         }
+        let single = colors.len() == 1;
         if !colors.is_empty() {
-            ui.add_space(6.0);
-            caption(ui, tr("Color variables"));
+            if sources.iter().any(|(_, l)| !l.is_empty()) {
+                rule(ui);
+            }
+            // One collection: its name at the end of the section's title.
+            let aside = match colors.first() {
+                Some((lib, c, _)) if single => lib.map_or(c.name.clone(), |l| format!("{} · {}", l.manifest.name, c.name)),
+                _ => String::new(),
+            };
+            caption(ui, tr("Color variables"), &aside);
         }
         for (lib, c, vars) in &colors {
-            crate::variable_ui::group_caption(ui, *lib, c);
+            if !single {
+                crate::variable_ui::group_caption(ui, *lib, c);
+            }
             let all = lib.map_or(&doc.variables, |l| &l.doc.variables);
+            ui.add_space(2.0);
             for v in vars {
                 if crate::variable_ui::variable_row(ui, all, v, W) {
                     out.act = Some(Act::Bind(crate::variable_ui::Pick { library: lib.map(|l| l.manifest.id.clone()), id: v.id.clone() }));
@@ -639,14 +689,14 @@ fn property_row(ui: &mut Ui, label: &str, paint: Option<&Paint>, slot: StyleSlot
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(W, ROW_H), if paint.is_some() { Sense::click() } else { Sense::hover() });
     if paint.is_some() && resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_hover);
+        ui.painter().rect_filled(r.shrink(3.0), CornerRadius::same(6), t.menu_hover);
     }
-    let pr = Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(14.0, 14.0));
+    let pr = Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(18.0, 18.0));
     match paint {
         Some(p) => widgets::paint_swatch(ui.painter(), pr, p),
-        None => icons::paint(ui.painter(), pr, slot.icon(), t.menu_text),
+        None => icons::paint(ui.painter(), pr.shrink(2.0), slot.icon(), t.menu_text),
     }
-    ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, label, regular(11.0), t.menu_text);
+    ui.painter().text(pos2(r.min.x + 34.0, r.center().y), Align2::LEFT_CENTER, label, regular(12.0), t.menu_text);
     paint.is_some() && resp.clicked()
 }
 
@@ -672,7 +722,7 @@ fn binding_cell(ui: &mut Ui, doc: &Document, style: &Style, field: &str, kind: f
         ui.interact(chip, id, Sense::click()).on_hover_text(crate::i18n::trf("Bound to {name}. Click to detach the variable.", &[("name", &name)]));
     ui.painter().rect_filled(chip, CornerRadius::same(4), if resp.hovered() { t.menu_hover } else { t.menu });
     ui.painter().rect_stroke(chip, CornerRadius::same(4), Stroke::new(1.0, t.menu_dim.gamma_multiply(0.4)), egui::StrokeKind::Inside);
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(chip.min.x + 9.0, chip.center().y), vec2(11.0, 11.0)), Icon::Variable, t.menu_dim);
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(chip.min.x + 9.0, chip.center().y), vec2(12.0, 12.0)), Icon::Variable, t.menu_dim);
     ui.painter().text(pos2(chip.min.x + 18.0, chip.center().y), Align2::LEFT_CENTER, shown, regular(10.0), t.menu_text);
     if resp.clicked() {
         out.act = Some(Act::Unbind(style.id.clone(), field.to_string()));
@@ -705,7 +755,7 @@ fn grid_label(g: &figcraft_doc::LayoutGrid) -> String {
 fn text_properties(ui: &mut Ui, id: &str, def: &TextStyle, out: &mut Frame) {
     let t = Tokens::get(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(W, 40.0), Sense::hover());
-    ui.painter().rect_filled(r, CornerRadius::same(5), Color32::from_white_alpha(14));
+    ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_field());
     text_sample(ui, def, "Ag", 28.0, pos2(r.min.x + 10.0, r.center().y), 60.0, r.height() - 4.0, &mut out.budget);
     let summary = format!("{} {}\n{}", def.font_family, def.font_style, text_meta(def));
     let g = ui.painter().layout(summary, regular(10.5), t.menu_dim, W - 80.0);
@@ -719,34 +769,45 @@ fn text_properties(ui: &mut Ui, id: &str, def: &TextStyle, out: &mut Frame) {
         }
     };
     let half = (W - 8.0) / 2.0;
-    // The dropdowns' menus open outside the dark scope (they're regular popups).
-    let (family_resp, style_resp) = crate::theme::on_dark(ui, |ui| {
-        ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
-        let family_resp = widgets::dropdown(ui, &def.font_family, W, None).on_hover_text(tr("Font"));
-        let mut style_resp = None;
-        ui.horizontal(|ui| {
-            style_resp = Some(widgets::dropdown(ui, &def.font_style, half, None).on_hover_text(tr("Font style")));
-            if let Some(widgets::FieldEdit::Set(v) | widgets::FieldEdit::Scrub(v, true)) =
-                widgets::number_field(ui, Id::new(("ts_size", id)), widgets::Lead::Text(tr("Size")), Some(def.font_size), "", half, 1.0)
-            {
-                set(out, &|d| d.font_size = v.clamp(1.0, 5000.0));
-            }
-        });
-        ui.horizontal(|ui| {
-            if let Some(v) = widgets::text_field(ui, Id::new(("ts_lh", id)), &def.line_height.label(), half, tr("Line height"))
-                && let Some(lh) = crate::typography::parse_line_height(&v, Some(def.line_height)).and_then(|v| crate::typography::line_height_of(&v))
-            {
-                set(out, &|d| d.line_height = lh);
-            }
-            if let Some(v) = widgets::text_field(ui, Id::new(("ts_ls", id)), &def.letter_spacing.label(), half, tr("Letter spacing"))
-                && let Some(ls) =
-                    crate::typography::parse_letter_spacing(&v, Some(def.letter_spacing)).and_then(|v| crate::typography::letter_spacing_of(&v))
-            {
-                set(out, &|d| d.letter_spacing = ls);
-            }
-        });
-        (family_resp, style_resp)
-    });
+    let (family_resp, style_resp) = ui
+        .scope(|ui| {
+            ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
+            let family_resp = widgets::dropdown(ui, &def.font_family, W, None).on_hover_text(tr("Font"));
+            let mut style_resp = None;
+            ui.horizontal(|ui| {
+                style_resp = Some(widgets::dropdown(ui, &def.font_style, half, None).on_hover_text(tr("Font style")));
+                if let Some(widgets::FieldEdit::Set(v) | widgets::FieldEdit::Scrub(v, true)) =
+                    widgets::number_field(ui, Id::new(("ts_size", id)), widgets::Lead::Text(tr("Size")), Some(def.font_size), "", half, 1.0)
+                {
+                    set(out, &|d| d.font_size = v.clamp(1.0, 5000.0));
+                }
+            });
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                for label in [tr("Line height"), tr("Letter spacing")] {
+                    ui.allocate_ui(vec2(half, 14.0), |ui| {
+                        ui.set_width(half);
+                        ui.label(egui::RichText::new(label).font(semibold(10.5)).color(Tokens::get(ui.ctx()).menu_dim));
+                    });
+                }
+            });
+            ui.horizontal(|ui| {
+                if let Some(v) = widgets::text_field(ui, Id::new(("ts_lh", id)), &def.line_height.label(), half, tr("Line height"))
+                    && let Some(lh) =
+                        crate::typography::parse_line_height(&v, Some(def.line_height)).and_then(|v| crate::typography::line_height_of(&v))
+                {
+                    set(out, &|d| d.line_height = lh);
+                }
+                if let Some(v) = widgets::text_field(ui, Id::new(("ts_ls", id)), &def.letter_spacing.label(), half, tr("Letter spacing"))
+                    && let Some(ls) =
+                        crate::typography::parse_letter_spacing(&v, Some(def.letter_spacing)).and_then(|v| crate::typography::letter_spacing_of(&v))
+                {
+                    set(out, &|d| d.letter_spacing = ls);
+                }
+            });
+            (family_resp, style_resp)
+        })
+        .inner;
     crate::right::menu_popup(&family_resp).width(260.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         if let Some(f) = crate::typography::font_picker(ui, Some(&def.font_family), family_resp.clicked()).picked {
             set(out, &|d| {
@@ -785,14 +846,14 @@ fn editor(ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut Frame) {
         out.act = Some(Act::Back);
         return;
     };
-    let (hr, _) = ui.allocate_exact_size(vec2(W, 24.0), Sense::hover());
-    if menu_icon(ui, Rect::from_min_size(hr.min, vec2(24.0, 24.0)), Icon::ChevronLeft, tr("Back to styles"), false).clicked() {
+    let (hr, _) = ui.allocate_exact_size(vec2(W, 28.0), Sense::hover());
+    if menu_icon(ui, Rect::from_min_size(hr.min, vec2(28.0, 28.0)), Icon::ChevronLeft, tr("Back to styles"), false).clicked() {
         out.act = Some(Act::Back);
     }
-    ui.painter().text(pos2(hr.min.x + 30.0, hr.center().y), Align2::LEFT_CENTER, tr("Edit style"), semibold(11.0), t.menu_text);
-    ui.add_space(6.0);
-    caption(ui, tr("Name"));
-    let r = ui.add(egui::TextEdit::singleline(&mut e.name).font(regular(11.0)).desired_width(W));
+    ui.painter().text(pos2(hr.min.x + 36.0, hr.center().y), Align2::LEFT_CENTER, tr("Edit style"), semibold(13.0), t.menu_text);
+    ui.add_space(10.0);
+    field_label(ui, tr("Name"));
+    let r = widgets::text_input(ui, Id::new(("style_name", &e.id)), &mut e.name, W, tr("Name"));
     if e.focus {
         r.request_focus();
         let mut state = egui::TextEdit::load_state(ui.ctx(), r.id).unwrap_or_default();
@@ -801,16 +862,36 @@ fn editor(ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut Frame) {
         egui::TextEdit::store_state(ui.ctx(), r.id, state);
         e.focus = false;
     }
-    crate::widgets::select_all_on_focus(ui, &r, &e.name);
-    ui.add_space(6.0);
-    caption(ui, tr("Description"));
-    ui.add(egui::TextEdit::multiline(&mut e.description).font(regular(11.0)).desired_width(W).desired_rows(2));
-    ui.add_space(8.0);
-    caption(ui, tr("Properties"));
-    ui.scope(|ui| {
+    ui.add_space(10.0);
+    field_label(ui, tr("Description"));
+    egui::Frame::NONE.fill(t.menu_field()).corner_radius(CornerRadius::same(widgets::FIELD_R)).inner_margin(egui::Margin::symmetric(8, 6)).show(
+        ui,
+        |ui| {
+            ui.set_width(W - 16.0);
+            ui.add(
+                egui::TextEdit::multiline(&mut e.description)
+                    .font(regular(11.5))
+                    .frame(egui::Frame::NONE)
+                    .hint_text(tr("Optional"))
+                    .desired_width(W - 16.0)
+                    .desired_rows(2),
+            );
+        },
+    );
+    ui.add_space(10.0);
+    field_label(ui, tr("Properties"));
+    let card = ui.painter().add(egui::Shape::Noop);
+    let values = ui.scope(|ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         match &style.kind {
-            StyleKind::Paint { paints } if paints.is_empty() => caption(ui, tr("No paints")),
+            StyleKind::Paint { paints } if paints.is_empty() => {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new(tr("No paints")).font(regular(11.5)).color(t.menu_dim));
+                });
+                ui.add_space(4.0);
+            }
             StyleKind::Paint { paints } => {
                 // Top of the list paints on top: show in reverse like the Fill section.
                 for (i, paint) in paints.iter().enumerate().rev() {
@@ -841,15 +922,28 @@ fn editor(ui: &mut Ui, doc: &Document, p: &mut Picker, out: &mut Frame) {
             StyleKind::Text { style: def } => text_properties(ui, &style.id, def, out),
         }
     });
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        if has_selection && menu_button(ui, tr("Update from selection")).on_hover_text(tr("Take the values from the first selected layer")).clicked()
-        {
-            out.act = Some(Act::UpdateFromSelection(style.id.clone()));
-        }
-        if menu_button(ui, tr("Delete")).on_hover_text(tr("Delete the style (layers keep their values)")).clicked() {
+    // The values sit on a card as tall as they are (text styles bring their own sample card).
+    if !matches!(style.kind, StyleKind::Text { .. }) {
+        let r = values.response.rect;
+        let r = Rect::from_min_max(r.min, pos2(r.min.x + W, r.max.y));
+        ui.painter().set(card, egui::Shape::rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, t.menu_line()), egui::StrokeKind::Inside));
+    }
+    // The footer: a rule across the popover, Delete at the left, Update at the right.
+    ui.add_space(14.0);
+    let (line, _) = ui.allocate_exact_size(vec2(W, 1.0), Sense::hover());
+    ui.painter().hline((line.min.x - 12.0)..=(line.max.x + 12.0), line.center().y, Stroke::new(1.0, t.menu_line()));
+    ui.add_space(10.0);
+    ui.allocate_ui_with_layout(vec2(W, widgets::FIELD_H), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        if menu_button(ui, tr("Delete"), true).on_hover_text(tr("Delete the style (layers keep their values)")).clicked() {
             out.act = Some(Act::Delete(style.id.clone()));
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if has_selection
+                && menu_button(ui, tr("Update from selection"), false).on_hover_text(tr("Take the values from the first selected layer")).clicked()
+            {
+                out.act = Some(Act::UpdateFromSelection(style.id.clone()));
+            }
+        });
     });
 }
 
@@ -887,25 +981,25 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
     if app.ui.picker.is_some() {
         x -= 260.0;
     }
-    let y = p.y.clamp(screen.min.y + 48.0, (screen.max.y - 460.0).max(screen.min.y + 48.0));
+    let y = p.y.clamp(screen.min.y + 48.0, (screen.max.y - 540.0).max(screen.min.y + 48.0));
     let mut out = Frame { act: None, hover: None, budget: 4 };
     let area = egui::Area::new(Id::new("style_picker_area")).order(egui::Order::Foreground).fixed_pos(pos2(x, y)).show(ctx, |ui| {
-        egui::Frame::NONE.fill(t.menu).corner_radius(CornerRadius::same(10)).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
-            ui.set_width(W);
-            if p.edit.is_some() {
-                editor(ui, &doc, &mut p, &mut out);
-            } else {
-                listing(app, ui, &doc, &mut p, &mut out);
-            }
-        });
+        egui::Frame::NONE
+            .fill(t.menu)
+            .corner_radius(CornerRadius::same(12))
+            .stroke(Stroke::new(1.0, t.menu_line()))
+            .inner_margin(egui::Margin::same(12))
+            .shadow(egui::Shadow { offset: [0, 10], blur: 28, spread: 0, color: t.shadow })
+            .show(ui, |ui| {
+                ui.set_width(W);
+                if p.edit.is_some() {
+                    editor(ui, &doc, &mut p, &mut out);
+                } else {
+                    listing(app, ui, &doc, &mut p, &mut out);
+                }
+            });
     });
     let rect = area.response.rect;
-    ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("style_picker_border"))).rect_stroke(
-        rect,
-        CornerRadius::same(10),
-        Stroke::new(1.0, Color32::from_black_alpha(40)),
-        egui::StrokeKind::Inside,
-    );
     // Clicks in the colour picker editing this picker's style, or in a menu the editor opened,
     // keep it open.
     let picker_rect =

@@ -14,7 +14,6 @@ pub mod cjk;
 pub mod colorpicker;
 pub mod comments;
 pub mod component_panel;
-pub mod context_bar;
 pub mod control;
 pub mod credits;
 pub mod cursors;
@@ -45,6 +44,7 @@ pub mod missing_fonts;
 pub mod online;
 pub mod pending_open;
 pub mod plugins_ui;
+pub mod preferences;
 pub mod present;
 pub mod proto_canvas;
 pub mod proto_editor;
@@ -87,13 +87,13 @@ mod canvas_fixes_tests;
 #[cfg(test)]
 mod canvas_image_rect_tests;
 #[cfg(test)]
+mod cards_tests;
+#[cfg(test)]
 mod colorpicker_selection_tests;
 #[cfg(test)]
 mod comments_tests;
 #[cfg(test)]
 mod component_props_reorder_tests;
-#[cfg(test)]
-mod context_bar_tests;
 #[cfg(test)]
 mod cursors_tests;
 #[cfg(test)]
@@ -408,7 +408,7 @@ pub(crate) fn repaint_in(ctx: &egui::Context, secs: f64) {
 /// The page showing around the floating panels, between them and the window's edges.
 pub const ISLAND_GAP: i8 = 12;
 /// The floating panels' corners.
-pub const ISLAND_R: u8 = 16;
+pub const ISLAND_R: u8 = 12;
 
 /// A floating panel: rounded, outlined, `margin` away from its neighbours (none on the side that
 /// meets the canvas, which shows the same page).
@@ -499,6 +499,8 @@ pub struct UiState {
     /// A message at the bottom of the window and how long it has been showing.
     pub toast: Option<(String, ToastClock)>,
     pub present: Option<present::Presenter>,
+    /// What the presentation's controls in the top bar asked for this frame (the presenter acts on it).
+    pub(crate) present_action: Option<present::BarAction>,
     /// A presentation kept alive while its design tab or Home is in front.
     pub paused_present: Option<present::Presenter>,
     /// The file that owns the presentation tab.
@@ -618,7 +620,7 @@ impl Default for UiState {
             right_tab: RightTab::Design,
             last_right_tab: RightTab::Design,
             left_tab: LeftTab::File,
-            pages_open: true,
+            pages_open: false,
             pages_height: None,
             expanded: BTreeSet::new(),
             rename: None,
@@ -647,6 +649,7 @@ impl Default for UiState {
             icon_gallery: false,
             toast: None,
             present: None,
+            present_action: None,
             paused_present: None,
             present_uid: None,
             present_view: present::PresentView::default(),
@@ -1306,6 +1309,7 @@ impl FigApp {
         self.ui.dark = dark;
         // New files take the theme's page colour (existing pages keep theirs).
         self.session.set_ui_dark(dark);
+        theme::set_classic(self.session.prefs.palette == "classic");
         theme::apply_with(ctx, if dark { theme::Tokens::dark() } else { theme::Tokens::light() }, self.reduce_motion());
         if self.worker.is_none() {
             self.worker = Some(render_worker::Worker::new(ctx.clone()));
@@ -1478,7 +1482,11 @@ impl FigApp {
         // The Inspect tab measures on hover without Alt.
         self.session.tool.redlines = self.ui.right_tab == RightTab::Inspect;
         self.end_pen_outside_design();
-        tabs::tab_bar(self, ui);
+        // Home has no top bar: its own navigation carries the main menu, the open files and the theme.
+        let home = (!self.has_files() || self.ui.home) && self.ui.present.is_none();
+        if !home {
+            tabs::tab_bar(self, ui);
+        }
         if self.ui.present.is_some() {
             // A close request can arrive while the presenter fills the window. Let its unsaved
             // changes dialog take Escape and draw above the player just as it does in the editor.
@@ -1496,6 +1504,7 @@ impl FigApp {
             // (cleared after the home widgets, which may have just asked for it).
             self.ui.shortcuts_panel = false;
             dialogs::keys(self, &ctx);
+            menus::popups(self, &ctx);
             dialogs::show(self, &ctx);
             self.toast_ui(&ctx);
             windows::requests(self, &ctx);
@@ -1504,7 +1513,8 @@ impl FigApp {
         let hidden = self.session.ds().map(|d| d.view.ui_hidden).unwrap_or(false);
         if !hidden {
             // The panels float over the page as islands: the margins around them show the page.
-            ui.painter().rect_filled(ui.available_rect_before_wrap(), egui::CornerRadius::ZERO, canvas::page_background(self, &ctx));
+            let bg = canvas::page_background(self, &ctx);
+            ui.painter().rect_filled(ui.available_rect_before_wrap(), egui::CornerRadius::ZERO, bg);
         }
         let left_open = !hidden && !self.ui.left_collapsed;
         let gap = f32::from(ISLAND_GAP);
@@ -1515,6 +1525,7 @@ impl FigApp {
             edges.push(("left", ui.available_rect_before_wrap().min.x + gap + left_w, left_w, 1.0));
             egui::Panel::left("left_panel")
                 .resizable(false)
+                .show_separator_line(false)
                 .exact_size(left_w + gap)
                 .frame(island(&t, egui::Margin { left: ISLAND_GAP, right: 0, top: ISLAND_GAP, bottom: ISLAND_GAP }))
                 .show(ui, |ui| {
@@ -1532,6 +1543,7 @@ impl FigApp {
             edges.push(("right", ui.available_rect_before_wrap().max.x - gap - right_w, right_w, -1.0));
             egui::Panel::right("right_panel")
                 .resizable(false)
+                .show_separator_line(false)
                 .exact_size(right_w + gap)
                 .frame(island(&t, egui::Margin { left: 0, right: ISLAND_GAP, top: ISLAND_GAP, bottom: ISLAND_GAP }))
                 .show(ui, |ui| {
@@ -1550,10 +1562,6 @@ impl FigApp {
             canvas::show(self, ui, &mut worker);
             self.worker = Some(worker);
             if !hidden {
-                ui.scope_builder(egui::UiBuilder::new().id_salt("context_bar"), |ui| {
-                    a11y::container(ui, egui::accesskit::Role::Toolbar, i18n::tr("Actions"));
-                    context_bar::show(self, ui);
-                });
                 ui.scope_builder(egui::UiBuilder::new().id_salt("toolbar"), |ui| {
                     a11y::container(ui, egui::accesskit::Role::Toolbar, i18n::tr("Tools"));
                     toolbar::show(self, ui);
@@ -1636,10 +1644,13 @@ impl FigApp {
             .pivot(egui::Align2::CENTER_BOTTOM)
             .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
+                let dark = theme::Tokens::dark();
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgb(0x1E, 0x1E, 0x1E))
-                    .corner_radius(egui::CornerRadius::same(8))
-                    .inner_margin(egui::Margin::symmetric(14, 10))
+                    .fill(dark.menu)
+                    .stroke(egui::Stroke::new(1.0, dark.menu_line()))
+                    .corner_radius(egui::CornerRadius::same(9))
+                    .inner_margin(egui::Margin::symmetric(16, 11))
+                    .shadow(egui::Shadow { offset: [0, 10], blur: 28, spread: 0, color: egui::Color32::from_black_alpha(70) })
                     .show(ui, |ui| {
                         // Wrapped at a readable width (the area alone would wrap at a sliver).
                         let width = (screen.width() - 64.0).clamp(120.0, 480.0);
@@ -1749,12 +1760,12 @@ pub(crate) fn drop_overlay(ctx: &egui::Context, rect: egui::Rect, label: &str) {
     let t = theme::Tokens::get(ctx);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop_overlay")));
     let area = rect.shrink(4.0);
-    painter.rect_filled(area, egui::CornerRadius::same(8), t.accent.gamma_multiply(0.12));
-    painter.rect_stroke(area, egui::CornerRadius::same(8), egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+    painter.rect_filled(area, egui::CornerRadius::same(6), t.accent.gamma_multiply(0.12));
+    painter.rect_stroke(area, egui::CornerRadius::same(6), egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
     let galley = painter.layout_no_wrap(label.to_owned(), theme::semibold(14.0), t.text);
     let pill = egui::Rect::from_center_size(area.center(), galley.size() + egui::vec2(32.0, 16.0));
-    painter.rect_filled(pill, egui::CornerRadius::same(8), t.panel);
-    painter.rect_stroke(pill, egui::CornerRadius::same(8), egui::Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
+    painter.rect_filled(pill, egui::CornerRadius::same(6), t.panel);
+    painter.rect_stroke(pill, egui::CornerRadius::same(6), egui::Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
     painter.galley(pill.center() - galley.size() / 2.0, galley, t.text);
     // Hovering sends no pointer events on every platform: keep the overlay current.
     ctx.request_repaint();

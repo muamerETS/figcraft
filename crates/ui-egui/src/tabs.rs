@@ -1,6 +1,7 @@
-//! The top bar: islands for the file (main menu, name, open files), the command bar and sharing.
-//! In a frameless window it is also the title bar: its empty space drags the window
-//! (double-click maximises), and it carries the window buttons; the window's edges resize it.
+//! The top bar: the main menu, Home and a tab per open file, then the window's tools, the people,
+//! Present and Share. In a frameless window it is also the title bar: its empty space drags the
+//! window (double-click maximises), and it carries the window buttons; the window's edges resize
+//! it.
 
 use egui::{Align2, Color32, CornerRadius, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
@@ -8,125 +9,401 @@ use serde_json::json;
 use crate::a11y::Tip;
 use crate::i18n::{tr, trf};
 use crate::icons::{self, Icon};
-use crate::theme::{Tokens, regular, semibold};
+use crate::theme::{Tokens, semibold};
 use crate::{FigApp, TitleBar};
 
-/// The top bar's height: its islands and the margin above them.
-pub const HEIGHT: f32 = 56.0;
-const ISLAND_H: f32 = 44.0;
+/// The top bar's height.
+pub const HEIGHT: f32 = 48.0;
+/// A tab's height, and the width it never grows past or shrinks under.
+const TAB_H: f32 = 34.0;
+const TAB_MAX: f32 = 240.0;
+const TAB_MIN: f32 = 96.0;
 
-/// The top bar: the file island (main menu, file name, open files), the command bar and the
-/// share island (theme, people, Present, Share), floating over the page like the panels below
-/// them. In a frameless window it is also the title bar: its empty space drags the window
-/// (double-click maximises), and it carries the window buttons.
+/// The top bar: the main menu, Home, the open files' tabs, a new file and the list of every open
+/// file; at the right the command palette, the variables, the left panel, the theme, then the
+/// people, Present and Share. While presenting, the presentation's controls sit between them.
 pub fn tab_bar(app: &mut FigApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let editing = app.has_files() && !app.ui.home && app.ui.present.is_none();
-    let bg = if editing { crate::canvas::page_background(app, ui.ctx()) } else { t.panel };
-    egui::Panel::top("tab_bar").exact_size(HEIGHT).frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| {
+    egui::Panel::top("tab_bar").exact_size(HEIGHT).show_separator_line(false).frame(egui::Frame::NONE.fill(t.tab_bar)).show(ui, |ui| {
         let rect = ui.max_rect();
-        // Empty space moves the window (first, so the islands on top take their clicks).
-        if app.ui.title_bar != TitleBar::Native {
-            let drag = ui.interact(rect, ui.id().with("titlebar_drag"), Sense::click_and_drag());
-            if drag.drag_started() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
-            if drag.double_clicked() {
-                let max = ui.input(|i| i.viewport().maximized.unwrap_or(false));
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-            }
-        }
+        // Empty space moves the window (first, so the tabs and buttons on top take their clicks).
+        window_drag(app, ui, rect, "titlebar_drag");
+        ui.painter().hline(rect.x_range(), rect.max.y - 0.5, Stroke::new(1.0, t.border));
         let buttons_w = if app.ui.title_bar == TitleBar::Custom { window_buttons(app, ui, rect) } else { 0.0 };
-        let gap = f32::from(crate::ISLAND_GAP);
-        let inset = if app.ui.title_bar == TitleBar::Inset { 76.0 } else { gap };
-        let y = rect.min.y + gap;
-        // The islands line up with the panels under them.
-        let (left_w, right_w) = app.panel_widths(rect.width());
-        let lw = (if left_w > 0.0 { left_w } else { crate::PANEL_DEFAULT } - (inset - gap)).max(180.0);
-        let left = Rect::from_min_size(pos2(rect.min.x + inset, y), vec2(lw, ISLAND_H));
-        file_island(app, ui, left, &t, editing);
-        let rw = if editing { right_w } else { ISLAND_H };
-        let right = Rect::from_min_size(pos2(rect.max.x - buttons_w - gap - rw, y), vec2(rw, ISLAND_H));
-        share_island(app, ui, right, &t, editing);
-        app.ui.command_rect = None;
-        if editing {
-            command_bar(app, ui, Rect::from_min_max(pos2(left.max.x + gap, y), pos2(right.min.x - gap, y + ISLAND_H)), rect.center().x);
+        let cy = rect.center().y;
+        let left = rect.min.x + if app.ui.title_bar == TitleBar::Inset { INSET_LEFT } else { 10.0 };
+        let menu_end = main_menu_button(app, ui, &t, left, cy);
+        let tools_start = right_tools(app, ui, &t, rect.max.x - buttons_w - 8.0, cy, editing);
+        let tabs_end = file_tabs(app, ui, &t, menu_end + 8.0, tools_start - 12.0, cy, editing);
+        // Presenting: the presentation's own controls between the tabs and the tools.
+        if let Some(mut p) = app.ui.present.take() {
+            let room = Rect::from_min_max(pos2(tabs_end + 12.0, cy - 20.0), pos2(tools_start - 12.0, cy + 20.0));
+            let now = ui.input(|i| i.time);
+            app.ui.present_action = crate::present::full_bar(&mut p, ui, room, now).or(app.ui.present_action);
+            app.ui.present = Some(p);
         }
     });
 }
 
-/// An island's panel: filled, outlined and rounded like the floating panels.
-fn island(ui: &Ui, r: Rect, t: &Tokens) {
-    let radius = CornerRadius::same(crate::ISLAND_R);
-    ui.interact(r, ui.id().with(("island", r.min.x as i32)), Sense::click());
-    ui.painter().rect_filled(r, radius, t.panel);
-    ui.painter().rect_stroke(r, radius, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-}
-
-/// The file island: the main menu (the logo), the file's name (a click renames it) and the menu
-/// of open files, and the buttons for the variables and the left panel.
-fn file_island(app: &mut FigApp, ui: &mut Ui, r: Rect, t: &Tokens, editing: bool) {
-    island(ui, r, t);
-    let cy = r.center().y;
-    let lr = Rect::from_min_size(pos2(r.min.x + 8.0, cy - 14.0), vec2(28.0, 28.0));
+/// The main menu (File, Edit, View…) at `x`; returns where it ends.
+fn main_menu_button(app: &mut FigApp, ui: &mut Ui, t: &Tokens, x: f32, cy: f32) -> f32 {
+    let lr = Rect::from_min_size(pos2(x, cy - 15.0), vec2(30.0, 30.0));
     let lresp = ui.interact(lr, ui.id().with("rail_menu"), Sense::click()).tip(tr("Main menu"));
-    ui.painter().rect_filled(lr, CornerRadius::same(9), if lresp.hovered() || app.ui.main_menu { t.accent_hover } else { crate::theme::ACCENT });
-    icons::paint(ui.painter(), Rect::from_center_size(lr.center(), vec2(16.0, 16.0)), Icon::Logo, Color32::WHITE);
+    ui.painter().rect_filled(lr, CornerRadius::same(8), if lresp.hovered() || app.ui.main_menu { t.accent_hover } else { crate::theme::accent() });
+    icons::paint(ui.painter(), Rect::from_center_size(lr.center(), vec2(16.0, 16.0)), Icon::Menu, Color32::WHITE);
     if lresp.clicked() {
         app.ui.main_menu = !app.ui.main_menu;
     }
     if app.ui.main_menu {
         crate::a11y::popup(&mut app.ui.nav, lresp.id, crate::menus::main_menu_id());
     }
-    // Right end: the left panel, the variables (while editing) and the open files.
-    let mut x = r.max.x - 8.0;
-    let button = |ui: &mut Ui, x: &mut f32, id: &str, icon: Icon, tip: &str| {
-        let br = Rect::from_min_size(pos2(*x - 26.0, cy - 13.0), vec2(26.0, 26.0));
-        *x -= 28.0;
-        crate::widgets::icon_button_at(ui, ui.id().with(id), br, icon, tip)
-    };
-    let files = {
-        let br = Rect::from_min_size(pos2(x - 22.0, cy - 13.0), vec2(22.0, 26.0));
-        x -= 24.0;
-        let resp = ui.interact(br, ui.id().with("open_files"), Sense::click()).tip(tr("Open files"));
-        crate::a11y::menu_button(&resp, tr("Open files"), crate::a11y::menu_open(&resp));
-        if resp.hovered() {
-            ui.painter().rect_filled(br, CornerRadius::same(6), t.hover);
-        }
-        icons::paint(ui.painter(), Rect::from_center_size(br.center(), vec2(10.0, 10.0)), Icon::Chevron, t.icon_secondary);
-        resp
-    };
-    if editing {
-        if button(ui, &mut x, "variables", Icon::Variable, tr("Variables")) {
-            app.ui.variables.get_or_insert_with(Default::default);
-        }
-        if button(ui, &mut x, "hideui", Icon::Panels, tr("Collapse panel")) {
-            app.ui.left_collapsed = !app.ui.left_collapsed;
-        }
-    }
-    let text_x = lr.max.x + 10.0;
-    let name_r = Rect::from_min_max(pos2(text_x - 2.0, cy - 17.0), pos2(x - 2.0, cy + 1.0));
-    if editing {
-        let name = app.session.doc().map(|d| d.name.clone()).unwrap_or_default();
-        let start = std::mem::take(&mut app.ui.rename_file);
-        if let (Some(new), _) = crate::widgets::rename_field(ui, Id::new("filename"), &name, name_r, semibold(13.0), start) {
-            app.run("file.rename", json!({"name": new}));
-        }
-        ui.painter().text(pos2(text_x, cy + 9.0), Align2::LEFT_CENTER, tr("Drafts"), regular(10.5), t.text_secondary);
-    } else {
-        let (title, sub) = match app.ui.present.is_some() {
-            true => (app.session.doc().map(|d| d.name.clone()).unwrap_or_default(), tr("Present")),
-            false => ("FigCraft".to_string(), tr("Home")),
-        };
-        let shown = crate::widgets::elide_font(ui, &title, (x - text_x).max(0.0), semibold(13.0));
-        ui.painter().text(pos2(text_x, cy - 8.0), Align2::LEFT_CENTER, shown, semibold(13.0), t.text);
-        ui.painter().text(pos2(text_x, cy + 9.0), Align2::LEFT_CENTER, sub, regular(10.5), t.text_secondary);
-    }
-    files_menu(app, ui, &files, editing);
+    lr.max.x
 }
 
+/// A small square button on the bar, `active` while what it opens is open.
+fn bar_button(ui: &mut Ui, t: &Tokens, r: Rect, id: &str, icon: Icon, tip: &str, active: bool) -> egui::Response {
+    let resp = ui.interact(r, ui.id().with(id), Sense::click()).tip(tip);
+    crate::a11y::button(&resp, tip);
+    if active || resp.hovered() {
+        ui.painter().rect_filled(r, CornerRadius::same(8), if active { t.pressed } else { t.hover });
+    }
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(r.center(), vec2(16.0, 16.0)),
+        icon,
+        if active || resp.hovered() { t.icon } else { t.icon_secondary },
+    );
+    resp
+}
+
+/// The tools at the bar's right, ending at `right`: while editing the people, Present and Share,
+/// and before them the command palette, the variables, the left panel and the theme. Returns
+/// where they start.
+fn right_tools(app: &mut FigApp, ui: &mut Ui, t: &Tokens, right: f32, cy: f32, editing: bool) -> f32 {
+    let mut x = right;
+    app.ui.command_rect = None;
+    if editing {
+        let share = Rect::from_min_max(pos2(right - 230.0, cy - 20.0), pos2(right + 8.0, cy + 20.0));
+        crate::right::share_cluster(app, ui, share);
+        x = share.min.x;
+        let sep = x - 2.0;
+        ui.painter().vline(sep, (cy - 10.0)..=(cy + 10.0), Stroke::new(1.0, t.border));
+        x = sep - 6.0;
+    }
+    let next = |x: &mut f32| {
+        let r = Rect::from_min_size(pos2(*x - 32.0, cy - 16.0), vec2(32.0, 32.0));
+        *x -= 34.0;
+        r
+    };
+    let r = next(&mut x);
+    if bar_button(ui, t, r, "theme", if app.ui.dark { Icon::Sun } else { Icon::Moon }, tr("Toggle light/dark theme"), false).clicked() {
+        let cmd = if app.ui.dark { "view.themeLight" } else { "view.themeDark" };
+        app.run(cmd, json!({}));
+    }
+    if editing {
+        let r = next(&mut x);
+        if bar_button(ui, t, r, "hideui", Icon::Panels, tr("Collapse panel"), app.ui.left_collapsed).clicked() {
+            app.ui.left_collapsed = !app.ui.left_collapsed;
+        }
+        let r = next(&mut x);
+        if bar_button(ui, t, r, "variables", Icon::Variable, tr("Variables"), app.ui.variables.is_some()).clicked() {
+            app.ui.variables.get_or_insert_with(Default::default);
+        }
+        let r = next(&mut x);
+        let open = app.ui.palette.is_some();
+        let tip = crate::shortcuts::tip(tr("Actions"), "app.actions");
+        let resp = bar_button(ui, t, r, "command_bar", Icon::Search, tip, open);
+        crate::a11y::menu_button(&resp, tr("Search or run a command"), open);
+        app.ui.command_rect = Some(r);
+        // While the palette is open, the keyboard is its: Enter "clicking" this button would
+        // close it instead of running its row.
+        let toggle = if open { resp.clicked_by(egui::PointerButton::Primary) } else { resp.clicked() };
+        if open && resp.has_focus() {
+            resp.surrender_focus();
+        }
+        if toggle {
+            crate::menus::toggle_palette(&mut app.ui);
+        }
+    }
+    x
+}
+
+/// One open file's tab, as laid out this frame.
+struct Tab {
+    index: usize,
+    uid: u64,
+    name: String,
+    dirty: bool,
+    live: Option<bool>,
+    active: bool,
+    width: f32,
+}
+
+/// Home, the open files' tabs (narrower when they don't all fit; the ones left over are in the
+/// open files list), the presentation's tab, a new file and the open files list, from `x` up to
+/// `max_x`. Returns where they end.
+fn file_tabs(app: &mut FigApp, ui: &mut Ui, t: &Tokens, mut x: f32, max_x: f32, cy: f32, editing: bool) -> f32 {
+    let font = semibold(12.5);
+    let several = !ui.ctx().embed_viewports();
+    // Home.
+    let hr = Rect::from_min_size(pos2(x, cy - TAB_H / 2.0), vec2(TAB_H, TAB_H));
+    let home_active = (app.ui.home || !app.has_files()) && app.ui.present.is_none();
+    let hresp = ui.interact(hr, ui.id().with("home"), Sense::click()).tip(tr("Home"));
+    crate::a11y::tab(&hresp, tr("Home"), home_active);
+    tab_fill(ui, t, hr, home_active, hresp.hovered());
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(hr.center(), vec2(16.0, 16.0)),
+        Icon::Home,
+        if home_active { t.icon } else { t.icon_secondary },
+    );
+    if hresp.clicked() {
+        if let Some(p) = app.ui.present.take() {
+            app.ui.paused_present = Some(p);
+        }
+        app.ui.home = true;
+    }
+    x = hr.max.x + 4.0;
+    let presenting = app.ui.present.is_some() || app.ui.paused_present.is_some();
+    let mut tabs: Vec<Tab> = app
+        .session
+        .docs
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| app.shows(d.uid))
+        .map(|(i, d)| {
+            let live = live_mark(app, d.uid);
+            let name = d.doc.name.clone();
+            // The name, with the logo before it and the close button (and any marks) after it.
+            let extra = 84.0 + if live.is_some() { 18.0 } else { 0.0 } + if d.is_dirty() { 10.0 } else { 0.0 };
+            let natural = ui.painter().layout_no_wrap(name.clone(), font.clone(), t.text).size().x + extra;
+            Tab {
+                index: i,
+                uid: d.uid,
+                name,
+                dirty: d.is_dirty(),
+                live,
+                active: i == app.session.active && editing,
+                width: natural.clamp(TAB_MIN, TAB_MAX),
+            }
+        })
+        .collect();
+    // What follows the tabs: the presentation, a new file and the list.
+    let tail = if presenting { 124.0 } else { 0.0 } + 4.0 + 30.0 + 4.0 + 26.0;
+    let room = (max_x - x - tail).max(0.0);
+    let gap = 4.0;
+    let wanted: f32 = tabs.iter().map(|tab| tab.width + gap).sum();
+    if wanted > room && !tabs.is_empty() {
+        let each = (room / tabs.len() as f32 - gap).max(TAB_MIN);
+        for tab in &mut tabs {
+            tab.width = tab.width.min(each);
+        }
+        // Still too many: the ones that don't fit are left to the list (the active one stays).
+        let mut used = 0.0;
+        let mut kept = Vec::new();
+        let active = tabs.iter().position(|tab| tab.active);
+        let active_w = active.and_then(|a| tabs.get(a)).map_or(0.0, |tab| tab.width + gap);
+        for (k, tab) in tabs.into_iter().enumerate() {
+            let reserve = if Some(k) == active || active.is_none_or(|a| a < k) { 0.0 } else { active_w };
+            if tab.active || used + tab.width + gap + reserve <= room {
+                used += tab.width + gap;
+                kept.push(tab);
+            }
+        }
+        tabs = kept;
+    }
+    let mut switch = None;
+    let mut close = None;
+    let mut detach = None;
+    for tab in &tabs {
+        let r = Rect::from_min_size(pos2(x, cy - TAB_H / 2.0), vec2(tab.width, TAB_H));
+        let resp = ui.interact(r, ui.id().with(("tab", tab.uid)), if several { Sense::click_and_drag() } else { Sense::click() });
+        let label = match tab.live {
+            Some(true) => trf("{name}, in a live session", &[("name", &tab.name)]),
+            Some(false) => trf("{name}, online, open only to you", &[("name", &tab.name)]),
+            None => tab.name.clone(),
+        };
+        let resp = resp.on_hover_text(&label);
+        crate::a11y::tab(&resp, &label, tab.active);
+        tab_fill(ui, t, r, tab.active, resp.hovered());
+        // Dragged well off the bar: the file moves to a window of its own.
+        if resp.drag_stopped()
+            && let Some(p) = ui.input(|inp| inp.pointer.latest_pos())
+            && (p.y - cy).abs() > HEIGHT * 2.0
+        {
+            detach = Some((tab.index, Some(p)));
+        }
+        resp.context_menu(|ui| {
+            ui.set_width(200.0);
+            if crate::menus::item(ui, tr("Rename"), "", true, false, t) {
+                switch = Some(tab.index);
+                app.ui.rename_file = true;
+                ui.close();
+            }
+            if several && crate::menus::item(ui, tr("Open in new window"), "", true, false, t) {
+                detach = Some((tab.index, None));
+                ui.close();
+            }
+            if crate::menus::item(ui, tr("Close tab"), "", true, false, t) {
+                close = Some(tab.index);
+                ui.close();
+            }
+        });
+        let ink = if tab.active { t.text } else { t.text_secondary };
+        let mut name_x = r.min.x + 12.0;
+        if tab.width >= 120.0 {
+            icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 19.0, cy), vec2(14.0, 14.0)), Icon::Logo, crate::theme::accent());
+            name_x = r.min.x + 33.0;
+        }
+        let close_r = Rect::from_center_size(pos2(r.max.x - 16.0, cy), vec2(20.0, 20.0));
+        let mut name_end = close_r.min.x - 6.0;
+        if let Some(shared) = tab.live {
+            let at = Rect::from_center_size(pos2(name_end - 7.0, cy), vec2(14.0, 14.0));
+            icons::paint(ui.painter(), at, crate::online::mark(shared), if shared { t.success } else { t.icon_secondary });
+            name_end = at.min.x - 4.0;
+        }
+        let name_r = Rect::from_min_max(pos2(name_x, cy - 10.0), pos2(name_end, cy + 10.0));
+        let rename_id = Id::new("filename");
+        let renaming = tab.active && (app.ui.rename_file || ui.data(|d| d.get_temp::<String>(rename_id.with("buf")).is_some()));
+        if renaming {
+            let start = std::mem::take(&mut app.ui.rename_file);
+            if let (Some(new), _) = crate::widgets::rename_field(ui, rename_id, &tab.name, name_r, font.clone(), start) {
+                app.run("file.rename", json!({"name": new}));
+            }
+        } else {
+            let shown = crate::bidi::paint_name(ui.painter(), pos2(name_r.min.x, cy), &tab.name, font.clone(), ink, (name_r.width() - 10.0).max(0.0));
+            if tab.dirty {
+                ui.painter().circle_filled(pos2(shown.max.x + 6.0, cy), 3.0, t.warning);
+            }
+        }
+        if resp.hovered() || tab.active {
+            let cresp = ui.interact(close_r, ui.id().with(("tabclose", tab.uid)), Sense::click()).tip(tr("Close tab"));
+            if cresp.hovered() {
+                ui.painter().rect_filled(close_r, CornerRadius::same(5), t.pressed);
+            }
+            icons::paint(ui.painter(), Rect::from_center_size(close_r.center(), vec2(10.0, 10.0)), Icon::Close, t.icon_secondary);
+            if cresp.clicked() {
+                close = Some(tab.index);
+            }
+        }
+        if resp.double_clicked() && tab.active {
+            app.ui.rename_file = true;
+        } else if resp.clicked() && close.is_none() && !tab.active {
+            switch = Some(tab.index);
+        }
+        if resp.middle_clicked() {
+            close = Some(tab.index);
+        }
+        x = r.max.x + gap;
+    }
+    // Presentations live in their own tab; switching back to the design keeps the player state.
+    if presenting {
+        let r = Rect::from_min_size(pos2(x, cy - TAB_H / 2.0), vec2(120.0, TAB_H));
+        let resp = ui.interact(r, ui.id().with("presentation_tab"), Sense::click()).tip(tr("Present"));
+        let active = app.ui.present.is_some();
+        crate::a11y::tab(&resp, tr("Present"), active);
+        tab_fill(ui, t, r, active, resp.hovered());
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 19.0, cy), vec2(14.0, 14.0)), Icon::Play, t.icon);
+        ui.painter().text(pos2(r.min.x + 33.0, cy), Align2::LEFT_CENTER, tr("Present"), font.clone(), if active { t.text } else { t.text_secondary });
+        let cr = Rect::from_center_size(pos2(r.max.x - 16.0, cy), vec2(20.0, 20.0));
+        let mut closed = false;
+        if resp.hovered() || active {
+            let close_resp = ui.interact(cr, ui.id().with("presentation_close"), Sense::click()).tip(tr("Close preview"));
+            if close_resp.hovered() {
+                ui.painter().rect_filled(cr, CornerRadius::same(5), t.pressed);
+            }
+            icons::paint(ui.painter(), Rect::from_center_size(cr.center(), vec2(10.0, 10.0)), Icon::Close, t.icon_secondary);
+            if close_resp.clicked() {
+                app.ui.present = None;
+                app.ui.paused_present = None;
+                app.ui.present_uid = None;
+                closed = true;
+            }
+        }
+        if resp.clicked() && !active && !closed {
+            resume_presentation(app);
+        }
+        x = r.max.x + gap;
+    }
+    // A new file.
+    let nr = Rect::from_min_size(pos2(x, cy - 15.0), vec2(30.0, 30.0));
+    let nresp = ui.interact(nr, ui.id().with("newtab"), Sense::click()).tip(crate::shortcuts::tip(tr("New design file"), "file.new"));
+    if nresp.hovered() {
+        ui.painter().rect_filled(nr, CornerRadius::same(8), t.hover);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(nr.center(), vec2(14.0, 14.0)), Icon::Plus, t.icon_secondary);
+    if nresp.clicked() {
+        if let Some(p) = app.ui.present.take() {
+            app.ui.paused_present = Some(p);
+        }
+        app.run("file.new", json!({}));
+        app.ui.home = false;
+    }
+    // Every open file, Home and the file commands.
+    let br = Rect::from_min_size(pos2(nr.max.x + 4.0, cy - 13.0), vec2(26.0, 26.0));
+    let files = ui.interact(br, ui.id().with("open_files"), Sense::click()).tip(tr("Open files"));
+    crate::a11y::menu_button(&files, tr("Open files"), crate::a11y::menu_open(&files));
+    if files.hovered() {
+        ui.painter().rect_filled(br, CornerRadius::same(8), t.hover);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(br.center(), vec2(10.0, 10.0)), Icon::Chevron, t.icon_secondary);
+    files_menu(app, ui, &files, editing);
+    if let Some(i) = switch {
+        if let Some(p) = app.ui.present.take() {
+            app.ui.paused_present = Some(p);
+        }
+        app.run("doc.switch", json!({"index": i}));
+        app.ui.home = false;
+    }
+    let ctx = ui.ctx().clone();
+    if let Some((i, at)) = detach {
+        // Where the pointer let go, on the screen.
+        let at = at.and_then(|p| ui.input(|inp| inp.viewport().inner_rect).map(|r| r.min + p.to_vec2() - vec2(60.0, HEIGHT / 2.0)));
+        if let Err(e) = crate::windows::open(app, &ctx, Some(i), None, at) {
+            app.toast(e);
+        }
+    }
+    if let Some(i) = close {
+        close_file(app, &ctx, i);
+    }
+    br.max.x
+}
+
+/// A tab's background: the panel's colour and edge for the shown tab, a tint under the pointer.
+fn tab_fill(ui: &Ui, t: &Tokens, r: Rect, active: bool, hovered: bool) {
+    let radius = CornerRadius::same(10);
+    if active {
+        ui.painter().rect_filled(r, radius, t.panel);
+        ui.painter().rect_stroke(r, radius, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+    } else if hovered {
+        ui.painter().rect_filled(r, radius, t.hover);
+    }
+}
+
+/// Without the system's title bar, `rect` moves the window and a double-click on it maximises.
+/// Drawn before what sits on it, so that takes its own clicks.
+pub(crate) fn window_drag(app: &FigApp, ui: &Ui, rect: Rect, salt: &str) {
+    if app.ui.title_bar == TitleBar::Native {
+        return;
+    }
+    let drag = ui.interact(rect, ui.id().with(salt), Sense::click_and_drag());
+    if drag.drag_started() {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if drag.double_clicked() {
+        let max = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+    }
+}
+
+/// How far the islands keep from the window's top-left corner: on macOS the system's window
+/// buttons sit there.
+pub(crate) const INSET_LEFT: f32 = 76.0;
+pub(crate) const INSET_TOP: f32 = 36.0;
+
 /// The open files, Home, the presentation and the file commands: what the tab strip offered.
-fn files_menu(app: &mut FigApp, ui: &Ui, anchor: &egui::Response, editing: bool) {
+pub(crate) fn files_menu(app: &mut FigApp, ui: &Ui, anchor: &egui::Response, editing: bool) {
     let several = !ui.ctx().embed_viewports();
     let docs: Vec<(usize, String, bool, bool)> = app
         .session
@@ -145,19 +422,22 @@ fn files_menu(app: &mut FigApp, ui: &Ui, anchor: &egui::Response, editing: bool)
         })
         .collect();
     let presenting = app.ui.present.is_some() || app.ui.paused_present.is_some();
+    let presenting_now = app.ui.present.is_some();
     let mut switch = None;
     let mut close = None;
     let mut detach = None;
     let ctx = ui.ctx().clone();
     crate::right::menu_popup(anchor).width(240.0).show(|ui| {
-        if crate::right::menu_item_beside_checks(ui, tr("Home"), "") {
+        if crate::right::menu_check(ui, !editing && !presenting_now, tr("Home"), "") {
             if let Some(p) = app.ui.present.take() {
                 app.ui.paused_present = Some(p);
             }
             app.ui.home = true;
             ui.close();
         }
-        ui.separator();
+        if !docs.is_empty() || presenting {
+            ui.separator();
+        }
         for (i, name, dirty, active) in &docs {
             let label = if *dirty { format!("{name} •") } else { name.clone() };
             if crate::right::menu_check(ui, *active, &label, "") {
@@ -176,6 +456,10 @@ fn files_menu(app: &mut FigApp, ui: &Ui, anchor: &egui::Response, editing: bool)
             }
             app.run("file.new", json!({}));
             app.ui.home = false;
+            ui.close();
+        }
+        if crate::right::menu_item_beside_checks(ui, tr("Open file"), crate::shortcuts::shortcut("file.open").unwrap_or("")) {
+            app.open_dialog();
             ui.close();
         }
         if editing {
@@ -230,66 +514,6 @@ fn close_file(app: &mut FigApp, ctx: &egui::Context, i: usize) {
     }
 }
 
-/// The share island: the theme, and while editing the people, Present and Share.
-fn share_island(app: &mut FigApp, ui: &mut Ui, r: Rect, t: &Tokens, editing: bool) {
-    island(ui, r, t);
-    let theme_r = Rect::from_min_size(pos2(r.min.x + 8.0, r.center().y - 14.0), vec2(28.0, 28.0));
-    let tresp = ui.interact(theme_r, ui.id().with("theme"), Sense::click()).tip(tr("Toggle light/dark theme"));
-    if tresp.hovered() {
-        ui.painter().rect_filled(theme_r, CornerRadius::same(8), t.hover);
-    }
-    icons::paint(ui.painter(), theme_r.shrink(7.0), if app.ui.dark { Icon::Sun } else { Icon::Moon }, t.icon);
-    if tresp.clicked() {
-        let cmd = if app.ui.dark { "view.themeLight" } else { "view.themeDark" };
-        app.run(cmd, json!({}));
-    }
-    if editing {
-        crate::right::share_cluster(app, ui, Rect::from_min_max(pos2(theme_r.max.x + 2.0, r.min.y), r.max));
-    }
-}
-
-/// The command bar, an island centred on `centre` within `room` (narrower in a small window; not
-/// drawn without room). A click opens the Actions palette, as its shortcut does.
-fn command_bar(app: &mut FigApp, ui: &mut Ui, room: Rect, centre: f32) {
-    const MAX_W: f32 = 440.0;
-    const MIN_W: f32 = 200.0;
-    let t = Tokens::get(ui.ctx());
-    let w = MAX_W.min(room.width());
-    if w < MIN_W {
-        return;
-    }
-    let x = (centre - w / 2.0).clamp(room.min.x, room.max.x - w);
-    let r = Rect::from_min_size(pos2(x, room.min.y), vec2(w, room.height()));
-    let keys = crate::shortcuts::shortcut("app.actions").map(crate::toolbar::pretty_shortcut).unwrap_or_default();
-    let resp = ui.interact(r, ui.id().with("command_bar"), Sense::click()).tip(crate::shortcuts::tip(tr("Actions"), "app.actions"));
-    crate::a11y::menu_button(&resp, tr("Search or run a command"), app.ui.palette.is_some());
-    app.ui.command_rect = Some(r);
-    let open = app.ui.palette.is_some();
-    let radius = CornerRadius::same(crate::ISLAND_R);
-    ui.painter().rect_filled(r, radius, if resp.hovered() && !open { t.hover } else { t.panel });
-    ui.painter().rect_stroke(r, radius, Stroke::new(1.0, if open { t.accent } else { t.border }), egui::StrokeKind::Inside);
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 22.0, r.center().y), vec2(15.0, 15.0)), Icon::Search, t.icon_secondary);
-    let mut text_right = r.max.x - 12.0;
-    if !keys.is_empty() {
-        let g = ui.painter().layout_no_wrap(keys, semibold(11.0), t.text_secondary);
-        let kr = Rect::from_min_size(pos2(r.max.x - 10.0 - g.size().x - 14.0, r.center().y - 12.0), vec2(g.size().x + 14.0, 24.0));
-        ui.painter().rect_filled(kr, CornerRadius::same(7), t.field);
-        ui.painter().galley(kr.center() - g.size() / 2.0, g, t.text_secondary);
-        text_right = kr.min.x - 8.0;
-    }
-    let hint = crate::widgets::elide_font(ui, tr("Search or run a command"), (text_right - r.min.x - 40.0).max(0.0), regular(12.5));
-    ui.painter().text(pos2(r.min.x + 40.0, r.center().y), Align2::LEFT_CENTER, hint, regular(12.5), t.text_secondary);
-    // While the palette is open, the keyboard is its: arrows moving focus up here and Enter
-    // "clicking" the bar would close it instead of running its row.
-    let toggle = if open { resp.clicked_by(egui::PointerButton::Primary) } else { resp.clicked() };
-    if open && resp.has_focus() {
-        resp.surrender_focus();
-    }
-    if toggle {
-        crate::menus::toggle_palette(&mut app.ui);
-    }
-}
-
 fn resume_presentation(app: &mut FigApp) {
     let Some(uid) = app.ui.present_uid else { return };
     let Some(index) = app.session.docs.iter().position(|d| d.uid == uid) else {
@@ -311,7 +535,7 @@ pub fn live_mark(app: &FigApp, uid: u64) -> Option<bool> {
 }
 
 /// Minimise, maximise/restore and close at the right end of the title bar; returns their width.
-fn window_buttons(app: &mut FigApp, ui: &mut Ui, bar: Rect) -> f32 {
+pub(crate) fn window_buttons(app: &mut FigApp, ui: &mut Ui, bar: Rect) -> f32 {
     const W: f32 = 46.0;
     let t = Tokens::get(ui.ctx());
     let max = ui.input(|i| i.viewport().maximized.unwrap_or(false));

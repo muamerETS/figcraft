@@ -335,10 +335,11 @@ pub(crate) fn confirm_close(app: &mut FigApp, ctx: &Context) {
     let t = crate::theme::Tokens::get(ctx);
     let (mut open, mut discard, mut cancel) = (true, false, false);
     crate::dialogs::window(tr("Unsaved changes"), ctx).order(egui::Order::Foreground).open(&mut open).show(ctx, |ui| {
-        ui.set_width(340.0);
-        crate::widgets::label(ui, &trf("Unsaved changes in {names}. Close the window and lose them?", &[("names", &names.join(", "))]), t.text);
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
+        const W: f32 = 360.0;
+        ui.set_width(W);
+        let what = trf("Unsaved changes in {names}. Close the window and lose them?", &[("names", &names.join(", "))]);
+        crate::dialogs::dialog_lead(ui, W, crate::dialogs::Mark::Glyph("!"), t.warning, tr("Unsaved changes"), &what);
+        crate::dialogs::dialog_buttons(ui, W, |ui| {
             discard = crate::widgets::button(ui, tr("Close without saving"), true, true).clicked();
             cancel = crate::widgets::button(ui, tr("Cancel"), false, true).clicked();
         });

@@ -10,8 +10,15 @@ use crate::icons::{self, Icon};
 use crate::theme::{Tokens, regular, semibold};
 
 pub const ROW_H: f32 = 32.0;
-pub const FIELD_H: f32 = 24.0;
-pub const PAD: f32 = 16.0;
+pub const FIELD_H: f32 = 30.0;
+/// A panel row holding one line of fields, with the gap under it.
+pub const FIELD_ROW: f32 = 38.0;
+/// Fields', dropdowns' and segmented controls' corners.
+pub const FIELD_R: u8 = 7;
+pub const PAD: f32 = 20.0;
+/// How far a panel's controls, cards and highlighted rows sit from its edges (text and icons
+/// start at [`PAD`]).
+pub const INSET: f32 = 8.0;
 
 /// What a numeric field's label shows: text ("X") or an icon with the field's name (for screen
 /// readers: an icon doesn't say which property it is).
@@ -203,7 +210,7 @@ fn number_field_impl(
     let lead_w = match lead {
         Lead::None | Lead::Named(_) => 6.0,
         Lead::Text(s) => text_lead_width(ui, s, width),
-        Lead::Icon(..) => 24.0,
+        Lead::Icon(..) => 28.0,
     };
     let lead_rect = Rect::from_min_size(rect.min, vec2(lead_w, FIELD_H));
     let edit_rect = Rect::from_min_max(pos2(rect.min.x + lead_w, rect.min.y), rect.max);
@@ -215,23 +222,23 @@ fn number_field_impl(
     // The label scrubs with the pointer; the keyboard stops at the value only.
     let lead_resp = ui.interact(lead_rect, id.with("lead"), Sense::CLICK | Sense::DRAG);
     let hovered = field_resp.hovered() || lead_resp.hovered() || editing.is_some();
-    ui.painter().rect_filled(rect, CornerRadius::same(5), t.field);
+    ui.painter().rect_filled(rect, CornerRadius::same(FIELD_R), t.field);
     if editing.is_some() {
-        ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.accent), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, CornerRadius::same(FIELD_R), Stroke::new(1.0, t.accent), StrokeKind::Inside);
     } else if hovered {
-        ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.field_hover_border), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, CornerRadius::same(FIELD_R), Stroke::new(1.0, t.field_hover_border), StrokeKind::Inside);
     }
     match lead {
         Lead::Text(s) => {
-            let galley = crate::bidi::name_galley(ui.painter(), s, regular(11.0), t.text_secondary, lead_w - 12.0);
+            let galley = crate::bidi::name_galley(ui.painter(), s, semibold(11.0), t.text_secondary, lead_w - 12.0);
             // A label cut short shows whole on hover.
             if galley.elided {
                 lead_resp.clone().on_hover_text(s);
             }
-            ui.painter().galley(pos2(lead_rect.min.x + 8.0, rect.center().y - galley.size().y / 2.0), galley, t.text_secondary);
+            ui.painter().galley(pos2(lead_rect.min.x + 10.0, rect.center().y - galley.size().y / 2.0), galley, t.text_secondary);
         }
         Lead::Icon(i, _) => {
-            icons::paint(ui.painter(), Rect::from_center_size(lead_rect.center() + vec2(1.0, 0.0), vec2(14.0, 14.0)), i, t.icon_secondary)
+            icons::paint(ui.painter(), Rect::from_center_size(lead_rect.center() + vec2(2.0, 0.0), vec2(16.0, 16.0)), i, t.icon_secondary)
         }
         Lead::None | Lead::Named(_) => {}
     }
@@ -291,10 +298,10 @@ fn number_field_impl(
             let te = egui::TextEdit::singleline(&mut text)
                 .id(id.with("te"))
                 .frame(egui::Frame::NONE)
-                .font(regular(11.0))
+                .font(semibold(11.5))
                 .desired_width(edit_rect.width() - 6.0)
                 .vertical_align(egui::Align::Center);
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(edit_rect.shrink2(vec2(0.0, 4.0))));
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(edit_rect.shrink2(vec2(0.0, 6.0))));
             let r = child.add(te);
             a11y::own_focus(&r);
             keep_focus(&r, started);
@@ -353,7 +360,7 @@ fn number_field_impl(
             };
             let col = if value.is_some() { t.text } else { t.text_secondary };
             // A value too long for its room ends in "…", so a cut number never reads as another.
-            crate::bidi::paint_name(ui.painter(), pos2(edit_rect.min.x, rect.center().y), &s, regular(11.0), col, edit_rect.width());
+            crate::bidi::paint_name(ui.painter(), pos2(edit_rect.min.x, rect.center().y), &s, semibold(11.5), col, edit_rect.width());
         }
     }
     // The variable button shows while the pointer is over a bindable field.
@@ -378,8 +385,8 @@ fn number_field_impl(
 /// The width a text label takes at the start of a field `field_w` wide: the label as drawn plus
 /// its padding, leaving the value room for a few characters (a longer label ends in an ellipsis).
 pub(crate) fn text_lead_width(ui: &Ui, label: &str, field_w: f32) -> f32 {
-    let text = ui.painter().layout_no_wrap(label.to_string(), regular(11.0), Color32::PLACEHOLDER).size().x;
-    (12.0 + text).min(field_w - 32.0).max(24.0)
+    let text = ui.painter().layout_no_wrap(label.to_string(), semibold(11.0), Color32::PLACEHOLDER).size().x;
+    (16.0 + text).min(field_w - 32.0).max(26.0)
 }
 
 /// A field bound to a variable: the lead, then the variable's name in a chip; the chip opens the
@@ -548,14 +555,19 @@ fn text_field_in(ui: &mut Ui, id: Id, value: &str, rect: Rect, placeholder: &str
 /// its own (the field draws it), showing `hint` while empty.
 fn field_editor(ui: &mut Ui, rect: Rect, id: Id, text: &mut String, hint: &str) -> Response {
     let t = Tokens::get(ui.ctx());
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(8.0, 4.0))));
+    // One line centred on the field.
+    let font = regular(11.5);
+    let line_h = ui.painter().layout_no_wrap("Ag".into(), font.clone(), t.text).size().y;
+    let inner = Rect::from_min_max(pos2(rect.min.x + 10.0, rect.center().y - line_h / 2.0), pos2(rect.max.x - 10.0, rect.center().y + line_h / 2.0));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner));
     let r = child.add(
         egui::TextEdit::singleline(text)
             .id(id)
             .frame(egui::Frame::NONE)
-            .font(regular(11.0))
-            .hint_text(egui::RichText::new(hint).font(regular(11.0)).color(t.text_tertiary))
-            .desired_width(rect.width() - 16.0),
+            .margin(egui::Margin::ZERO)
+            .font(font.clone())
+            .hint_text(egui::RichText::new(hint).font(font).color(t.text_tertiary))
+            .desired_width(inner.width()),
     );
     select_all_on_focus(ui, &r, text);
     r
@@ -567,12 +579,12 @@ fn field_editor(ui: &mut Ui, rect: Rect, id: Id, text: &mut String, hint: &str) 
 pub fn text_input(ui: &mut Ui, id: Id, text: &mut String, width: f32, hint: &str) -> Response {
     let t = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(width, FIELD_H), Sense::hover());
-    ui.painter().rect_filled(rect, CornerRadius::same(5), t.field);
+    ui.painter().rect_filled(rect, CornerRadius::same(FIELD_R), t.field);
     let r = field_editor(ui, rect, id, text, hint);
     if r.has_focus() {
-        ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.accent), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, CornerRadius::same(FIELD_R), Stroke::new(1.0, t.accent), StrokeKind::Inside);
     } else if ui.rect_contains_pointer(rect) {
-        ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.field_hover_border), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, CornerRadius::same(FIELD_R), Stroke::new(1.0, t.field_hover_border), StrokeKind::Inside);
     }
     r
 }
@@ -659,11 +671,11 @@ pub fn dropdown_lead(ui: &mut Ui, label: &str, width: f32, lead: Option<DropLead
     let (rect, resp) = ui.allocate_exact_size(vec2(width, FIELD_H), Sense::click());
     a11y::combo(&resp, "", label, a11y::menu_open(&resp));
     let bg = t.field;
-    ui.painter().rect_filled(rect, CornerRadius::same(5), bg);
+    ui.painter().rect_filled(rect, CornerRadius::same(FIELD_R), bg);
     if resp.hovered() {
-        ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.field_hover_border), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, CornerRadius::same(FIELD_R), Stroke::new(1.0, t.field_hover_border), StrokeKind::Inside);
     }
-    let mut x = rect.min.x + 8.0;
+    let mut x = rect.min.x + 10.0;
     match lead {
         Some(DropLead::Icon(i)) => {
             icons::paint(ui.painter(), Rect::from_center_size(pos2(x + 6.0, rect.center().y), vec2(14.0, 14.0)), i, t.icon_secondary);
@@ -677,10 +689,10 @@ pub fn dropdown_lead(ui: &mut Ui, label: &str, width: f32, lead: Option<DropLead
     }
     // One line: a label longer than the field (a variable font style like "SemiBold SemiCondensed",
     // a long translation) ends with an ellipsis and shows in full on hover.
-    let shown = elide(ui, label, rect.max.x - x - 20.0);
-    let galley = ui.painter().layout_no_wrap(shown.clone(), regular(11.0), t.text);
+    let shown = elide_font(ui, label, rect.max.x - x - 22.0, semibold(11.5));
+    let galley = ui.painter().layout_no_wrap(shown.clone(), semibold(11.5), t.text);
     ui.painter().galley(pos2(x, rect.center().y - galley.size().y / 2.0), galley, t.text);
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.max.x - 10.0, rect.center().y), vec2(12.0, 12.0)), Icon::Chevron, t.icon_secondary);
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.max.x - 12.0, rect.center().y), vec2(10.0, 10.0)), Icon::Chevron, t.icon_secondary);
     if shown != label { resp.on_hover_text(label) } else { resp }
 }
 
@@ -721,23 +733,64 @@ pub fn elide_start_font(ui: &Ui, s: &str, max_w: f32, font: egui::FontId) -> Str
 /// A row of icon buttons; returns the index clicked.
 pub fn segmented(ui: &mut Ui, items: &[(Icon, &str)], active: Option<usize>, cell: f32) -> Option<usize> {
     let names: Vec<&str> = items.iter().map(|(_, tip)| *tip).collect();
-    segments(ui, &names, active, cell, true, |ui, r, i, on, t| {
-        if let Some((icon, _)) = items.get(i) {
-            icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(14.0, 14.0)), *icon, if on { t.icon } else { t.icon_secondary });
-        }
-    })
+    segments(
+        ui,
+        &names,
+        |i| active == Some(i),
+        cell,
+        true,
+        |ui, r, i, on, t| {
+            if let Some((icon, _)) = items.get(i) {
+                icons::paint(
+                    ui.painter(),
+                    Rect::from_center_size(r.center(), vec2(16.0, 16.0)),
+                    *icon,
+                    if on { t.accent_text } else { t.icon_secondary },
+                );
+            }
+        },
+    )
+}
+
+/// A row of icon toggles that can be on together (a flow and its wrap); returns the index clicked.
+pub fn segmented_flags(ui: &mut Ui, items: &[(Icon, &str)], on: &[bool], cell: f32) -> Option<usize> {
+    let names: Vec<&str> = items.iter().map(|(_, tip)| *tip).collect();
+    segments(
+        ui,
+        &names,
+        |i| on.get(i).copied().unwrap_or(false),
+        cell,
+        true,
+        |ui, r, i, lit, t| {
+            if let Some((icon, _)) = items.get(i) {
+                icons::paint(
+                    ui.painter(),
+                    Rect::from_center_size(r.center(), vec2(16.0, 16.0)),
+                    *icon,
+                    if lit { t.accent_text } else { t.icon_secondary },
+                );
+            }
+        },
+    )
 }
 
 /// A choice between a few labelled options across the available width (the active one raised);
 /// returns the index clicked. A label too long for its cell ends with an ellipsis.
 pub fn segmented_text(ui: &mut Ui, labels: &[&str], active: usize) -> Option<usize> {
     let cell = (ui.available_width() / labels.len().max(1) as f32).floor();
-    segments(ui, labels, Some(active), cell, false, |ui, r, i, on, t| {
-        let label = labels.get(i).copied().unwrap_or_default();
-        let font = if on { semibold(11.0) } else { regular(11.0) };
-        let shown = elide_font(ui, label, r.width() - 12.0, font.clone());
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, shown, font, if on { t.text } else { t.text_secondary });
-    })
+    segments(
+        ui,
+        labels,
+        |i| i == active,
+        cell,
+        false,
+        |ui, r, i, on, t| {
+            let label = labels.get(i).copied().unwrap_or_default();
+            let font = if on { semibold(11.0) } else { regular(11.0) };
+            let shown = elide_font(ui, label, r.width() - 12.0, font.clone());
+            ui.painter().text(r.center(), Align2::CENTER_CENTER, shown, font, if on { t.text } else { t.text_secondary });
+        },
+    )
 }
 
 /// The cells of a segmented control, each `cell` wide and named by `names` (shown on hover when
@@ -745,7 +798,7 @@ pub fn segmented_text(ui: &mut Ui, labels: &[&str], active: usize) -> Option<usi
 fn segments(
     ui: &mut Ui,
     names: &[&str],
-    active: Option<usize>,
+    is_on: impl Fn(usize) -> bool,
     cell: f32,
     tips: bool,
     paint: impl Fn(&Ui, Rect, usize, bool, &Tokens),
@@ -753,7 +806,7 @@ fn segments(
     let t = Tokens::get(ui.ctx());
     let w = cell * names.len() as f32;
     let (rect, _) = ui.allocate_exact_size(vec2(w, FIELD_H), Sense::hover());
-    ui.painter().rect_filled(rect, CornerRadius::same(5), t.field);
+    ui.painter().rect_filled(rect, CornerRadius::same(FIELD_R), t.field);
     let mut out = None;
     for (i, name) in names.iter().enumerate() {
         let r = Rect::from_min_size(pos2(rect.min.x + i as f32 * cell, rect.min.y), vec2(cell, FIELD_H));
@@ -761,14 +814,14 @@ fn segments(
         if tips {
             resp = resp.on_hover_text(*name);
         }
-        a11y::toggle(&resp, name, active == Some(i));
-        if active == Some(i) {
-            ui.painter().rect_filled(r.shrink(2.0), CornerRadius::same(4), t.panel);
-            ui.painter().rect_stroke(r.shrink(2.0), CornerRadius::same(4), Stroke::new(1.0, t.border), StrokeKind::Inside);
+        let on = is_on(i);
+        a11y::toggle(&resp, name, on);
+        if on {
+            ui.painter().rect_filled(r.shrink(2.0), CornerRadius::same(FIELD_R - 2), t.panel);
         } else if resp.hovered() {
-            ui.painter().rect_filled(r.shrink(2.0), CornerRadius::same(4), t.hover);
+            ui.painter().rect_filled(r.shrink(2.0), CornerRadius::same(FIELD_R - 2), t.hover);
         }
-        paint(ui, r, i, active == Some(i), &t);
+        paint(ui, r, i, on, &t);
         if resp.clicked() {
             out = Some(i);
         }
@@ -797,16 +850,17 @@ pub fn disclosure(ui: &mut Ui, label: &str, open: bool) -> bool {
 pub fn section_header(ui: &mut Ui, title: &str, buttons: &[(Icon, &str)], dim: bool) -> Option<usize> {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(w, SECTION_HEADER_H), Sense::hover());
     ui.painter().text(
         pos2(rect.min.x + PAD, rect.center().y),
         Align2::LEFT_CENTER,
         title,
-        semibold(11.0),
+        semibold(12.0),
         if dim { t.text_secondary } else { t.text },
     );
     let mut out = None;
-    let mut x = rect.max.x - 8.0;
+    // The icons' right edge mirrors the title's left one (the buttons pad their icons).
+    let mut x = rect.max.x - PAD + 7.0;
     for (i, (icon, tip)) in buttons.iter().enumerate().rev() {
         let r = Rect::from_min_size(pos2(x - 24.0, rect.center().y - 12.0), vec2(24.0, 24.0));
         let resp = ui.interact(r, ui.id().with(("hdr", title, i)), Sense::click()).tip(*tip);
@@ -827,9 +881,9 @@ pub fn icon_button_at(ui: &mut Ui, id: Id, rect: Rect, icon: Icon, tip: &str) ->
     let t = Tokens::get(ui.ctx());
     let resp = ui.interact(rect, id, Sense::click()).tip(tip);
     if resp.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(5), t.hover);
+        ui.painter().rect_filled(rect, CornerRadius::same(6), t.hover);
     }
-    icons::paint(ui.painter(), rect.shrink(5.0), icon, t.icon);
+    icons::paint(ui.painter(), Rect::from_center_size(rect.center(), vec2(14.0, 14.0)), icon, t.icon);
     resp.clicked()
 }
 
@@ -852,7 +906,7 @@ pub fn canvas_banner<R>(ctx: &egui::Context, id: Id, canvas: Rect, add: impl FnO
             egui::Frame::NONE
                 .fill(t.panel)
                 .stroke(Stroke::new(1.0, t.border))
-                .corner_radius(CornerRadius::same(8))
+                .corner_radius(CornerRadius::same(6))
                 .shadow(egui::epaint::Shadow { offset: [0, 2], blur: 12, spread: 0, color: t.shadow })
                 .inner_margin(egui::Margin { left: 14, right: 8, top: 8, bottom: 8 })
                 .show(ui, |ui| {
@@ -869,7 +923,7 @@ pub fn canvas_banner<R>(ctx: &egui::Context, id: Id, canvas: Rect, add: impl FnO
 
 /// Where a dragged row will land: an accent line across `x0..x1` at `y`.
 pub fn insertion_line(painter: &egui::Painter, x0: f32, x1: f32, y: f32) {
-    painter.line_segment([pos2(x0, y), pos2(x1, y)], Stroke::new(2.0, crate::theme::ACCENT));
+    painter.line_segment([pos2(x0, y), pos2(x1, y)], Stroke::new(2.0, crate::theme::accent()));
 }
 
 /// What a drag carries, following the pointer at `at`: `galley` in a small outlined box above
@@ -880,8 +934,16 @@ pub fn drag_ghost(ctx: &egui::Context, at: egui::Pos2, galley: std::sync::Arc<eg
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, Id::new("drag_ghost")));
     let r = Rect::from_min_size(at + vec2(14.0, 10.0), galley.size() + vec2(16.0, 8.0));
     painter.rect_filled(r, CornerRadius::same(5), t.panel);
-    painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0, crate::theme::ACCENT), StrokeKind::Inside);
+    painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0, crate::theme::accent()), StrokeKind::Inside);
     painter.galley(r.min + vec2(8.0, 4.0), galley, t.text);
+}
+
+/// A soft shadow under a floating control at `rect` with `radius` corners (lighter in the light theme).
+pub fn soft_shadow(painter: &egui::Painter, rect: Rect, radius: u8) {
+    let t = Tokens::get(painter.ctx());
+    let color = if t.dark { Color32::from_black_alpha(70) } else { Color32::from_black_alpha(20) };
+    let shadow = egui::Shadow { offset: [0, 3], blur: 14, spread: 0, color };
+    painter.add(shadow.as_shape(rect, CornerRadius::same(radius)));
 }
 
 /// Between two sections: a rule, or inside [`cards`] the end of one card and the start of the next.
@@ -913,12 +975,24 @@ struct Card {
 /// The gap between cards, their inset from the panel's edges, their corners and the space under
 /// their last row.
 const CARD_GAP: f32 = 8.0;
-const CARD_INSET: f32 = 8.0;
-const CARD_R: u8 = 12;
-const CARD_FOOT: f32 = 4.0;
+const CARD_INSET: f32 = INSET;
+const CARD_R: u8 = 9;
+const CARD_FOOT: f32 = 8.0;
+/// A section header's height.
+const SECTION_HEADER_H: f32 = 44.0;
 
 fn card_id() -> Id {
     Id::new("figcraft_card")
+}
+
+fn card_bare_id() -> Id {
+    Id::new("figcraft_card_bare")
+}
+
+/// The card being drawn holds a block centred in itself (the selection's header): no space is
+/// added under it.
+pub fn card_without_foot(ui: &Ui) {
+    ui.data_mut(|d| d.insert_temp(card_bare_id(), true));
 }
 
 /// Lay out `add` with its sections on cards: each [`separator`] it draws closes the card above
@@ -946,8 +1020,11 @@ fn open_card(ui: &mut Ui, x: egui::Rangef) {
 }
 
 fn close_card(ui: &mut Ui, card: Card) {
-    let empty = ui.cursor().min.y - card.top < 2.0;
-    if !empty {
+    let height = ui.cursor().min.y - card.top;
+    let empty = height < 2.0;
+    // A card with nothing under its header (an empty Fill, the selection's) keeps it centred.
+    let bare = ui.data_mut(|d| d.remove_temp::<bool>(card_bare_id())).unwrap_or(false);
+    if height > SECTION_HEADER_H + 1.0 && !bare {
         ui.add_space(CARD_FOOT);
     }
     let bottom = ui.cursor().min.y;
@@ -1005,35 +1082,142 @@ pub fn paint_name(paint: &figcraft_color::Paint) -> String {
 pub fn paint_swatch(painter: &egui::Painter, rect: Rect, paint: &figcraft_color::Paint) {
     let t = Tokens::get(painter.ctx());
     use figcraft_color::PaintKind;
-    let clip = painter.with_clip_rect(rect);
-    checker(&clip, rect, rect.width() / 4.0);
+    let ctx = painter.ctx().clone();
+    // Rounded like the fields around it.
+    let r = (rect.width().min(rect.height()) * 0.28).round().clamp(2.0, 6.0) as u8;
+    let radius = CornerRadius::same(r);
+    let textured = |tex: &egui::TextureHandle, uv: Rect| {
+        painter.add(egui::epaint::RectShape::filled(rect, radius, Color32::WHITE).with_texture(tex.id(), uv));
+    };
+    // The checkerboard under what isn't opaque: 4 cells across.
+    let cell = rect.width() / 4.0;
+    let checker_uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(rect.width() / (cell * 2.0), rect.height() / (cell * 2.0)));
     match &paint.kind {
         PaintKind::Solid { color } => {
             // Left half opaque, right half with alpha (like Figma's swatches).
-            let c = crate::theme::doc_c32(painter.ctx(), color.with_alpha(color.a * paint.opacity));
-            let opaque = crate::theme::doc_c32(painter.ctx(), color.with_alpha(1.0));
-            clip.rect_filled(Rect::from_min_max(rect.min, pos2(rect.center().x, rect.max.y)), CornerRadius::ZERO, opaque);
-            clip.rect_filled(Rect::from_min_max(pos2(rect.center().x, rect.min.y), rect.max), CornerRadius::ZERO, c);
+            let c = crate::theme::doc_c32(&ctx, color.with_alpha(color.a * paint.opacity));
+            let opaque = crate::theme::doc_c32(&ctx, color.with_alpha(1.0));
             if paint.opacity >= 0.999 && color.a >= 0.999 {
-                clip.rect_filled(rect, CornerRadius::ZERO, opaque);
+                painter.rect_filled(rect, radius, opaque);
+            } else {
+                textured(&swatch_checker(&ctx), checker_uv);
+                let left = CornerRadius { nw: r, sw: r, ne: 0, se: 0 };
+                let right = CornerRadius { nw: 0, sw: 0, ne: r, se: r };
+                painter.rect_filled(Rect::from_min_max(rect.min, pos2(rect.center().x, rect.max.y)), left, opaque);
+                painter.rect_filled(Rect::from_min_max(pos2(rect.center().x, rect.min.y), rect.max), right, c);
             }
         }
         PaintKind::Gradient(g) => {
-            let n = 16;
-            for i in 0..n {
-                let c = crate::theme::doc_c32(painter.ctx(), g.sample(i as f32 / (n - 1) as f32));
-                let x0 = rect.min.x + rect.width() * i as f32 / n as f32;
-                let x1 = rect.min.x + rect.width() * (i + 1) as f32 / n as f32;
-                clip.rect_filled(Rect::from_min_max(pos2(x0, rect.min.y), pos2(x1, rect.max.y)), CornerRadius::ZERO, c);
-            }
+            textured(&swatch_checker(&ctx), checker_uv);
+            let colors: Vec<Color32> = (0..16).map(|i| crate::theme::doc_c32(&ctx, g.sample(i as f32 / 15.0))).collect();
+            textured(&swatch_gradient(&ctx, &colors), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)));
         }
         PaintKind::Image(_) | PaintKind::Pattern(_) => {
             let icon = if matches!(paint.kind, PaintKind::Image(_)) { Icon::Image } else { Icon::ViewGrid };
-            clip.rect_filled(rect, CornerRadius::ZERO, Color32::from_gray(0xB3));
-            icons::paint(&clip, rect.shrink(2.0), icon, Color32::WHITE);
+            painter.rect_filled(rect, radius, Color32::from_gray(0xB3));
+            icons::paint(painter, rect.shrink(2.0), icon, Color32::WHITE);
         }
     }
-    painter.rect_stroke(rect, CornerRadius::same(2), Stroke::new(1.0, t.border), StrokeKind::Inside);
+    // A faint edge, so a colour like the panel's still shows its shape.
+    let edge = if t.dark { Color32::from_white_alpha(28) } else { Color32::from_black_alpha(26) };
+    painter.rect_stroke(rect, radius, Stroke::new(1.0, edge), StrokeKind::Inside);
+}
+
+/// A square tinted with `tint` behind `icon`, `icon_size` wide in `ink` (cards', dialogs' and
+/// headers' marks); its corners follow its size.
+pub fn icon_tile(painter: &egui::Painter, tile: Rect, icon: Icon, tint: Color32, ink: Color32, icon_size: f32) {
+    let radius = (tile.width() * 0.22).round().clamp(4.0, 16.0) as u8;
+    painter.rect_filled(tile, CornerRadius::same(radius), tint.gamma_multiply(0.16));
+    icons::paint(painter, Rect::from_center_size(tile.center(), vec2(icon_size, icon_size)), icon, ink);
+}
+
+/// The textures swatches draw with: the checkerboard, and a strip per gradient shown lately.
+#[derive(Clone, Default)]
+struct SwatchTextures {
+    checker: Option<egui::TextureHandle>,
+    gradients: std::collections::HashMap<u64, egui::TextureHandle>,
+}
+
+fn swatch_textures_id() -> Id {
+    Id::new("figcraft_swatch_textures")
+}
+
+/// Textures drawn into rounded shapes (the colour picker's square and sliders), each under a key
+/// and uploaded again when its pixels change.
+#[derive(Clone, Default)]
+struct KeyedTextures(std::collections::HashMap<String, (u64, egui::TextureHandle)>);
+
+/// `pixels` (`size` wide and high) as a texture filling `rect` with `radius` corners; `uv` picks
+/// the part of it shown.
+pub fn texture_rect(painter: &egui::Painter, rect: Rect, radius: CornerRadius, key: &str, size: [usize; 2], pixels: Vec<Color32>, uv: Rect) {
+    use std::hash::{Hash, Hasher};
+    if pixels.len() != size[0] * size[1] || pixels.is_empty() {
+        return;
+    }
+    let ctx = painter.ctx().clone();
+    let id = Id::new("figcraft_keyed_textures");
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    pixels.hash(&mut h);
+    let hash = h.finish();
+    let image = egui::ColorImage { size, source_size: vec2(size[0] as f32, size[1] as f32), pixels };
+    // Looked up in place: reading the map with `get_temp` would clone all of it.
+    let cached = ctx.data_mut(|d| d.get_temp_mut_or_default::<KeyedTextures>(id).0.get(key).cloned());
+    let tex = match cached {
+        Some((old, tex)) if old == hash => tex,
+        Some((_, mut tex)) => {
+            tex.set(image, egui::TextureOptions::LINEAR);
+            ctx.data_mut(|d| d.get_temp_mut_or_default::<KeyedTextures>(id).0.insert(key.to_string(), (hash, tex.clone())));
+            tex
+        }
+        None => {
+            let tex = ctx.load_texture(format!("keyed-{key}"), image, egui::TextureOptions::LINEAR);
+            ctx.data_mut(|d| d.get_temp_mut_or_default::<KeyedTextures>(id).0.insert(key.to_string(), (hash, tex.clone())));
+            tex
+        }
+    };
+    painter.add(egui::epaint::RectShape::filled(rect, radius, Color32::WHITE).with_texture(tex.id(), uv));
+}
+
+/// The transparency checkerboard filling `rect` with `radius` corners, cells `cell` wide.
+pub fn checker_rounded(painter: &egui::Painter, rect: Rect, radius: CornerRadius, cell: f32) {
+    let tex = swatch_checker(painter.ctx());
+    let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(rect.width() / (cell * 2.0), rect.height() / (cell * 2.0)));
+    painter.add(egui::epaint::RectShape::filled(rect, radius, Color32::WHITE).with_texture(tex.id(), uv));
+}
+
+/// The checkerboard's two-by-two tile, repeated across a swatch.
+fn swatch_checker(ctx: &egui::Context) -> egui::TextureHandle {
+    if let Some(tex) = ctx.data_mut(|d| d.get_temp_mut_or_default::<SwatchTextures>(swatch_textures_id()).checker.clone()) {
+        return tex;
+    }
+    let (w, g) = (Color32::WHITE, Color32::from_gray(0xE6));
+    let image = egui::ColorImage { size: [2, 2], source_size: vec2(2.0, 2.0), pixels: vec![w, g, g, w] };
+    let options = egui::TextureOptions { wrap_mode: egui::TextureWrapMode::Repeat, ..egui::TextureOptions::NEAREST };
+    let tex = ctx.load_texture("swatch-checker", image, options);
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<SwatchTextures>(swatch_textures_id()).checker = Some(tex.clone()));
+    tex
+}
+
+/// A gradient's colours as a one-pixel-high strip.
+fn swatch_gradient(ctx: &egui::Context, colors: &[Color32]) -> egui::TextureHandle {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    colors.hash(&mut h);
+    let key = h.finish();
+    if let Some(tex) = ctx.data_mut(|d| d.get_temp_mut_or_default::<SwatchTextures>(swatch_textures_id()).gradients.get(&key).cloned()) {
+        return tex;
+    }
+    let image = egui::ColorImage { size: [colors.len().max(1), 1], source_size: vec2(colors.len().max(1) as f32, 1.0), pixels: colors.to_vec() };
+    let tex = ctx.load_texture(format!("swatch-gradient-{key:x}"), image, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| {
+        let s = d.get_temp_mut_or_default::<SwatchTextures>(swatch_textures_id());
+        // A long session's gradients don't pile up.
+        if s.gradients.len() >= 64 {
+            s.gradients.clear();
+        }
+        s.gradients.insert(key, tex.clone());
+    });
+    tex
 }
 
 /// A small checkbox with label.
@@ -1041,14 +1225,15 @@ pub fn checkbox(ui: &mut Ui, on: bool, label: &str) -> bool {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(200.0), FIELD_H), Sense::click());
     a11y::checkbox(&resp, label, on);
-    let b = Rect::from_min_size(pos2(rect.min.x, rect.center().y - 7.0), vec2(14.0, 14.0));
+    let b = Rect::from_min_size(pos2(rect.min.x, rect.center().y - 8.0), vec2(16.0, 16.0));
     if on {
-        ui.painter().rect_filled(b, CornerRadius::same(3), t.accent);
-        icons::paint(ui.painter(), b.shrink(1.5), Icon::Check, Color32::WHITE);
+        ui.painter().rect_filled(b, CornerRadius::same(5), t.accent);
+        icons::paint(ui.painter(), b.shrink(2.0), Icon::Check, Color32::WHITE);
     } else {
-        ui.painter().rect_stroke(b, CornerRadius::same(3), Stroke::new(1.0, t.border_strong), StrokeKind::Inside);
+        ui.painter().rect_filled(b, CornerRadius::same(5), t.field);
+        ui.painter().rect_stroke(b, CornerRadius::same(5), Stroke::new(1.0, t.border_strong), StrokeKind::Inside);
     }
-    ui.painter().text(pos2(b.max.x + 8.0, rect.center().y), Align2::LEFT_CENTER, label, regular(11.0), t.text);
+    ui.painter().text(pos2(b.max.x + 10.0, rect.center().y), Align2::LEFT_CENTER, label, semibold(11.5), t.text);
     resp.clicked()
 }
 
@@ -1071,10 +1256,15 @@ pub fn radio(ui: &mut Ui, on: bool, label: &str) -> bool {
 /// A text button: `primary` is filled with the accent colour, otherwise outlined. A disabled
 /// button is dimmed and never reports clicks.
 pub fn button(ui: &mut Ui, label: &str, primary: bool, enabled: bool) -> Response {
+    button_wide(ui, label, primary, enabled, 0.0)
+}
+
+/// [`button`] at least `min_w` wide.
+pub fn button_wide(ui: &mut Ui, label: &str, primary: bool, enabled: bool, min_w: f32) -> Response {
     let t = Tokens::get(ui.ctx());
-    let galley = ui.painter().layout_no_wrap(label.to_string(), regular(11.0), t.text);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), semibold(11.5), t.text);
     let sense = if enabled { Sense::click() } else { Sense::hover() };
-    let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 24.0, FIELD_H), sense);
+    let (rect, resp) = ui.allocate_exact_size(vec2((galley.size().x + 28.0).max(min_w), FIELD_H), sense);
     a11y::button(&resp, label);
     let hot = enabled && resp.hovered();
     let (fill, text) = match (primary, hot) {
@@ -1084,11 +1274,11 @@ pub fn button(ui: &mut Ui, label: &str, primary: bool, enabled: bool) -> Respons
         (false, true) => (t.hover, t.text),
     };
     let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.4) };
-    ui.painter().rect_filled(rect, CornerRadius::same(5), dim(fill));
+    ui.painter().rect_filled(rect, CornerRadius::same(FIELD_R), dim(fill));
     if !primary {
-        ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.border_strong), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, CornerRadius::same(FIELD_R), Stroke::new(1.0, t.border_strong), StrokeKind::Inside);
     }
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, regular(11.0), dim(text));
+    ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, semibold(11.5), dim(text));
     resp
 }
 
@@ -1189,7 +1379,7 @@ pub fn note(ui: &mut Ui, text: &str, color: Color32) {
 pub fn sublabels(ui: &mut Ui, a: &str, b: Option<&str>) {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
-    let (r, _) = ui.allocate_exact_size(vec2(w, 18.0), Sense::hover());
+    let (r, _) = ui.allocate_exact_size(vec2(w, 20.0), Sense::hover());
     let col = col_width(w);
     // Each label fits its column on one line (long translations end with an ellipsis, in full on hover).
     let a_w = if b.is_some() { col } else { w - PAD * 2.0 };

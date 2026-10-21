@@ -227,7 +227,7 @@ fn action_item(app: &mut FigApp, ui: &mut Ui, cx: &Cx, a: &Action, path: Vec<usi
     let i = path.last().copied().unwrap_or(0);
     let removable = path.len() > 1 || count > 1;
     let slot = cx.slot(path);
-    let header = row_rect(ui, 32.0, |ui| {
+    let header = row_rect(ui, crate::widgets::FIELD_ROW, |ui| {
         if !single {
             let (r, resp) = ui.allocate_exact_size(vec2(12.0, FIELD_H), Sense::click());
             let resp = resp.tip(if open { tr("Close") } else { tr("Open") });
@@ -461,7 +461,7 @@ fn builder_row(app: &mut FigApp, ui: &mut Ui, cx: &Cx, slot: &Slot, b: usize, s:
     let vars = &cx.doc.variables;
     let var = vars.get(&s.var);
     let kind = var.map(|v| v.kind);
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let w = ui.available_width();
         let op_w = 48.0;
         let side = ((w - op_w - 16.0) / 2.0).max(40.0);
@@ -550,7 +550,7 @@ fn set_variable_fields(app: &mut FigApp, ui: &mut Ui, cx: &Cx, slot: &Slot, vari
     let vars = &cx.doc.variables;
     let var = vars.get(variable);
     widgets::sublabels(ui, tr("Variable"), None);
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let name = var.map_or(tr("Choose variable"), |v| v.name.as_str());
         let w = ui.available_width();
         let shown = widgets::elide(ui, name, w - 48.0);
@@ -598,7 +598,7 @@ fn set_variable_fields(app: &mut FigApp, ui: &mut Ui, cx: &Cx, slot: &Slot, vari
         }
         None => {
             let cur = figcraft_engine::proto_run::literal(var.kind, value).unwrap_or_else(|| start_value(vars, var));
-            row(ui, 32.0, |ui| {
+            row(ui, crate::widgets::FIELD_ROW, |ui| {
                 let w = ui.available_width() - 32.0;
                 if let Some(v) = literal_field(ui, slot.id("proto_set_value"), &cur, w) {
                     set(app, value_json(&v), None);
@@ -632,7 +632,7 @@ fn expr_field(
     let draft: Option<(String, String, String)> = ui.data(|d| d.get_temp::<(String, String, String)>(key)).filter(|d| d.0 == shown);
     let mut error = draft.as_ref().map(|d| d.2.clone());
     let mut out = None;
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let reserve = if trailing.is_some() { 32.0 } else { 0.0 };
         let text_now = draft.as_ref().map_or(shown.as_str(), |d| d.1.as_str()).to_string();
         let w = ui.available_width() - reserve;

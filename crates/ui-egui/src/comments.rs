@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::FigApp;
 use crate::i18n::{tr, trf, trn};
 use crate::icons::{self, Icon};
-use crate::theme::{ACCENT, Tokens, regular, semibold};
+use crate::theme::{Tokens, accent, regular, semibold};
 
 const PIN: f32 = 28.0;
 const POPOVER_W: f32 = 300.0;
@@ -192,7 +192,7 @@ pub fn cluster(points: &[Pos2], r: f32) -> Vec<Vec<usize>> {
 pub fn rich_text(text: &str, people: &[&str], color: Color32, width: f32) -> LayoutJob {
     let mut job = LayoutJob::default();
     let plain = TextFormat { font_id: regular(12.0), color, ..Default::default() };
-    let mention = TextFormat { font_id: semibold(12.0), color: ACCENT, ..Default::default() };
+    let mention = TextFormat { font_id: semibold(12.0), color: accent(), ..Default::default() };
     let mut at = 0;
     for r in mention_ranges(text, people) {
         job.append(text.get(at..r.start).unwrap_or(""), 0.0, plain.clone());
@@ -351,7 +351,7 @@ pub fn ago_long(t: u64) -> String {
 /// resolved.
 fn paint_pin(painter: &egui::Painter, r: Rect, p: &Pin, hot: bool) {
     painter.rect_filled(r.translate(vec2(0.0, 1.0)), BUBBLE, Color32::from_black_alpha(40));
-    painter.rect_filled(r, BUBBLE, if hot { ACCENT } else { Color32::WHITE });
+    painter.rect_filled(r, BUBBLE, if hot { accent() } else { Color32::WHITE });
     painter.rect_stroke(r, BUBBLE, Stroke::new(1.0, Color32::from_black_alpha(30)), StrokeKind::Inside);
     let fill = if p.resolved { Color32::from_gray(150) } else { author_color(&p.author) };
     painter.circle_filled(r.center(), 11.0, fill);
@@ -359,10 +359,10 @@ fn paint_pin(painter: &egui::Painter, r: Rect, p: &Pin, hot: bool) {
     if p.unread {
         let c = r.right_top() + vec2(-2.0, 2.0);
         painter.circle_filled(c, 4.5, Color32::WHITE);
-        painter.circle_filled(c, 3.5, ACCENT);
+        painter.circle_filled(c, 3.5, accent());
     }
     if p.resolved {
-        icons::paint(painter, Rect::from_center_size(r.right_bottom() + vec2(-3.0, -3.0), vec2(10.0, 10.0)), Icon::Check, ACCENT);
+        icons::paint(painter, Rect::from_center_size(r.right_bottom() + vec2(-3.0, -3.0), vec2(10.0, 10.0)), Icon::Check, accent());
     }
 }
 
@@ -374,10 +374,10 @@ fn paint_cluster(painter: &egui::Painter, at: Pos2, n: usize, hot: bool) {
     painter.rect_filled(back, BUBBLE, Color32::WHITE);
     painter.rect_stroke(back, BUBBLE, edge, StrokeKind::Inside);
     painter.rect_filled(r.translate(vec2(0.0, 1.0)), BUBBLE, Color32::from_black_alpha(40));
-    painter.rect_filled(r, BUBBLE, if hot { ACCENT } else { Color32::WHITE });
+    painter.rect_filled(r, BUBBLE, if hot { accent() } else { Color32::WHITE });
     painter.rect_stroke(r, BUBBLE, edge, StrokeKind::Inside);
     let inner = r.shrink(3.0);
-    painter.rect_filled(inner, CornerRadius::same(11), Color32::from_gray(44));
+    painter.rect_filled(inner, CornerRadius::same(8), if hot { Color32::from_black_alpha(60) } else { accent() });
     painter.text(inner.center(), Align2::CENTER_CENTER, n.to_string(), semibold(11.0), Color32::WHITE);
 }
 
@@ -399,7 +399,7 @@ pub fn draw(app: &FigApp, painter: &egui::Painter) {
     }
     if let Some((x, y, _)) = &app.ui.comments.draft {
         let r = pin_rect(app.to_screen(*x, *y));
-        painter.rect_filled(r, BUBBLE, ACCENT);
+        painter.rect_filled(r, BUBBLE, accent());
         painter.circle_filled(r.center(), 3.0, Color32::WHITE);
     }
 }
@@ -541,7 +541,7 @@ fn composer(ui: &mut Ui, id: Id, text: &mut String, hint: &str, people: &[String
             }
             let (br, bresp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
             let ready = !text.trim().is_empty();
-            ui.painter().circle_filled(br.center(), 12.0, if ready { ACCENT } else { t.hover });
+            ui.painter().circle_filled(br.center(), 12.0, if ready { accent() } else { t.hover });
             let c = br.center();
             let col = if ready { Color32::WHITE } else { t.icon_secondary };
             ui.painter().line_segment([c + vec2(0.0, 5.0), c + vec2(0.0, -5.0)], Stroke::new(1.6, col));
@@ -767,7 +767,7 @@ fn message(
                         },
                     );
                     if on {
-                        ui.painter().rect_stroke(rect, cr, Stroke::new(1.0, ACCENT), StrokeKind::Inside);
+                        ui.painter().rect_stroke(rect, cr, Stroke::new(1.0, accent()), StrokeKind::Inside);
                     }
                     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, t.text);
                     if resp.on_hover_text(r.users.join(", ")).clicked() {
@@ -797,7 +797,7 @@ fn popover_frame(t: &Tokens) -> egui::Frame {
     egui::Frame::NONE
         .fill(t.panel)
         .stroke(Stroke::new(1.0, t.border))
-        .corner_radius(CornerRadius::same(12))
+        .corner_radius(CornerRadius::same(9))
         .shadow(egui::epaint::Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(40) })
         .inner_margin(egui::Margin::same(12))
 }
@@ -1013,12 +1013,13 @@ pub fn panel(app: &mut FigApp, ui: &mut Ui) {
     let page = ds.page;
     let doc = ds.doc.clone();
     let me = me(app);
+    let inset = crate::widgets::INSET;
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.add_space(16.0);
+        ui.add_space(crate::widgets::PAD);
         ui.label(egui::RichText::new(tr("Comments")).font(semibold(12.0)).color(t.text));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(8.0);
+            ui.add_space(inset);
             let menu = icons::button(ui, Icon::Adjust, 24.0, app.ui.comments.filter != Filter::Open, tr("Filter and sort"));
             crate::right::menu_popup(&menu).width(200.0).show(|ui| {
                 for f in Filter::ALL {
@@ -1049,8 +1050,8 @@ pub fn panel(app: &mut FigApp, ui: &mut Ui) {
     });
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.add_space(16.0);
-        let w = ui.available_width() - 16.0;
+        ui.add_space(inset);
+        let w = ui.available_width() - inset;
         if let Some(s) = crate::widgets::text_field(ui, Id::new("comment_search"), &app.ui.comments.search, w, tr("Search comments")) {
             app.ui.comments.search = s;
         }
@@ -1059,10 +1060,10 @@ pub fn panel(app: &mut FigApp, ui: &mut Ui) {
     if app.ui.comments.filter != Filter::Open {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.add_space(16.0);
+            ui.add_space(crate::widgets::PAD);
             ui.label(egui::RichText::new(tr(app.ui.comments.filter.label())).font(regular(11.0)).color(t.text_secondary));
             ui.add_space(4.0);
-            if ui.add(egui::Label::new(egui::RichText::new(tr("Show open")).font(regular(11.0)).color(ACCENT)).sense(Sense::click())).clicked() {
+            if ui.add(egui::Label::new(egui::RichText::new(tr("Show open")).font(regular(11.0)).color(accent())).sense(Sense::click())).clicked() {
                 app.ui.comments.filter = Filter::Open;
             }
         });
@@ -1094,33 +1095,40 @@ pub fn panel(app: &mut FigApp, ui: &mut Ui) {
             last_page = Some(c.page);
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.add_space(16.0);
+                ui.add_space(crate::widgets::PAD);
                 let name = doc.node(c.page).map(|n| n.name.clone()).unwrap_or_default();
                 ui.label(egui::RichText::new(name).font(semibold(11.0)).color(t.text_secondary));
             });
             ui.add_space(2.0);
         }
         let w = ui.available_width();
-        let body = ui.painter().layout(c.first.text.clone(), regular(12.0), t.text, w - 64.0);
+        let text_w = w - inset * 2.0 - 52.0;
+        let body = ui.painter().layout(c.first.text.clone(), regular(12.0), t.text, text_w);
         let lines = body.rows.len().clamp(1, 3) as f32;
-        let (r, resp) = ui.allocate_exact_size(vec2(w, 52.0 + 16.0 * lines), Sense::click());
-        if app.ui.comments.open == Some(c.id) {
-            ui.painter().rect_filled(r, CornerRadius::ZERO, t.selected_row);
-            if scroll {
-                resp.scroll_to_me(Some(egui::Align::Center));
-            }
+        let (row, resp) = ui.allocate_exact_size(vec2(w, 62.0 + 16.0 * lines + 6.0), Sense::click());
+        // Each thread on a card, the open one outlined.
+        let r = Rect::from_min_max(pos2(row.min.x + inset, row.min.y), pos2(row.max.x - inset, row.max.y - 6.0));
+        let open = app.ui.comments.open == Some(c.id);
+        let fill = if open {
+            t.selected_row
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::ZERO, t.hover);
+            t.hover
+        } else {
+            t.card
+        };
+        ui.painter().rect(r, CornerRadius::same(9), fill, Stroke::new(1.0, if open { accent() } else { t.card_border }), egui::StrokeKind::Inside);
+        if open && scroll {
+            resp.scroll_to_me(Some(egui::Align::Center));
         }
         let unread = c.is_unread(&me);
         if unread {
-            ui.painter().circle_filled(pos2(r.min.x + 8.0, r.min.y + 22.0), 3.5, ACCENT);
+            ui.painter().circle_filled(pos2(r.max.x - 10.0, r.min.y + 10.0), 3.5, accent());
         }
-        avatar(ui.painter(), pos2(r.min.x + 28.0, r.min.y + 22.0), 12.0, &c.first.author);
+        avatar(ui.painter(), pos2(r.min.x + 22.0, r.min.y + 22.0), 12.0, &c.first.author);
         let name_font = if unread { semibold(12.0) } else { regular(12.0) };
-        ui.painter().text(pos2(r.min.x + 48.0, r.min.y + 22.0), Align2::LEFT_CENTER, &c.first.author, name_font, t.text);
-        ui.painter().text(pos2(r.max.x - 16.0, r.min.y + 22.0), Align2::RIGHT_CENTER, ago(c.last_activity()), regular(11.0), t.text_tertiary);
-        let clip = Rect::from_min_size(pos2(r.min.x + 48.0, r.min.y + 38.0), vec2(w - 64.0, 16.0 * lines));
+        ui.painter().text(pos2(r.min.x + 42.0, r.min.y + 22.0), Align2::LEFT_CENTER, &c.first.author, name_font, t.text);
+        ui.painter().text(pos2(r.max.x - 20.0, r.min.y + 22.0), Align2::RIGHT_CENTER, ago(c.last_activity()), regular(11.0), t.text_tertiary);
+        let clip = Rect::from_min_size(pos2(r.min.x + 42.0, r.min.y + 38.0), vec2(text_w, 16.0 * lines));
         ui.painter().with_clip_rect(clip).galley(clip.min, body, t.text);
         // The thread's frame and page, replies, state.
         let mut meta = Vec::new();
@@ -1138,10 +1146,9 @@ pub fn panel(app: &mut FigApp, ui: &mut Ui) {
         }
         if !meta.is_empty() {
             let galley = ui.painter().layout_no_wrap(meta.join(" · "), regular(11.0), t.text_secondary);
-            let at = pos2(r.min.x + 48.0, r.max.y - 12.0 - galley.size().y / 2.0);
-            ui.painter().with_clip_rect(Rect::from_min_max(pos2(at.x, r.min.y), pos2(r.max.x - 16.0, r.max.y))).galley(at, galley, t.text_secondary);
+            let at = pos2(r.min.x + 42.0, r.max.y - 12.0 - galley.size().y / 2.0);
+            ui.painter().with_clip_rect(Rect::from_min_max(pos2(at.x, r.min.y), pos2(r.max.x - 12.0, r.max.y))).galley(at, galley, t.text_secondary);
         }
-        ui.painter().line_segment([pos2(r.min.x + 16.0, r.max.y), pos2(r.max.x, r.max.y)], Stroke::new(1.0, t.border));
         if resp.clicked() {
             go = Some(c.id);
         }

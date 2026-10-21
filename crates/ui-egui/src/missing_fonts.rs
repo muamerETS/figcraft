@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use crate::FigApp;
 use crate::i18n::{tr, trn};
-use crate::theme::{Tokens, regular};
+use crate::theme::{Tokens, regular, semibold};
 
 #[derive(Clone, Debug)]
 pub struct Shown {
@@ -81,33 +81,40 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
     let mut open = true;
     let mut close_clicked = false;
     crate::dialogs::window(tr("Missing fonts"), ctx).open(&mut open).show(ctx, |ui| {
-        ui.set_width(380.0);
+        const W: f32 = 400.0;
+        ui.set_width(W);
+        ui.spacing_mut().item_spacing.y = 10.0;
+        let text = crate::dialogs::Mark::Icon(crate::icons::Icon::Text);
         if shown.indexing {
-            ui.label(tr("Checking the fonts installed on this computer…"));
+            crate::dialogs::dialog_lead(ui, W, text, t.accent, tr("Checking the fonts installed on this computer…"), "");
         } else if shown.families.is_empty() {
-            ui.label(tr("All the fonts this file uses are installed"));
+            crate::dialogs::dialog_lead(ui, W, text, t.success, tr("All the fonts this file uses are installed"), "");
         } else {
-            ui.label(
-                RichText::new(tr(
-                    "This file uses fonts that aren't installed on this computer. Their text is drawn in a fallback font until you install them.",
-                ))
-                .color(t.text_secondary)
-                .font(regular(11.0)),
-            );
-            ui.add_space(6.0);
-            egui::ScrollArea::vertical().id_salt("missing_fonts").max_height(260.0).show(ui, |ui| {
-                for m in &shown.families {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(&m.family).strong());
-                        let used =
-                            if m.layers == 0 { tr("only in a text style or variable").to_string() } else { trn("{n} text layers", m.layers, &[]) };
-                        ui.label(RichText::new(used).color(t.text_secondary));
-                    });
-                }
+            let why =
+                tr("This file uses fonts that aren't installed on this computer. Their text is drawn in a fallback font until you install them.");
+            crate::dialogs::dialog_lead(ui, W, text, t.warning, tr("Missing fonts"), why);
+            crate::dialogs::list_card(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("missing_fonts").max_height(260.0).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    for m in &shown.families {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&m.family).font(semibold(12.0)).color(t.text));
+                            let used = if m.layers == 0 {
+                                tr("only in a text style or variable").to_string()
+                            } else {
+                                trn("{n} text layers", m.layers, &[])
+                            };
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(RichText::new(used).font(regular(11.0)).color(t.text_secondary));
+                            });
+                        });
+                    }
+                });
             });
         }
-        ui.add_space(12.0);
-        close_clicked = crate::widgets::button(ui, tr("Close"), true, true).clicked();
+        crate::dialogs::dialog_buttons(ui, W, |ui| {
+            close_clicked = crate::widgets::button(ui, tr("Close"), true, true).clicked();
+        });
     });
     if !open || close_clicked {
         app.ui.missing_fonts = None;

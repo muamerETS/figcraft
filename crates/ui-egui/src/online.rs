@@ -266,8 +266,7 @@ pub fn dialogs(app: &mut FigApp, ctx: &egui::Context) {
                 tr("The file is deleted from the server: nobody can open or join it from there again, and this can't be undone. Copies that are open stay with whoever has them."),
                 t.danger,
             );
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+            crate::dialogs::dialog_buttons(ui, 380.0, |ui| {
                 go = widgets::button(ui, tr("Remove"), true, true).clicked();
                 cancel = widgets::button(ui, tr("Cancel"), false, true).clicked();
             });
@@ -292,8 +291,7 @@ pub fn dialogs(app: &mut FigApp, ctx: &egui::Context) {
                 resp.request_focus();
             }
             go = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+            crate::dialogs::dialog_buttons(ui, 380.0, |ui| {
                 go |= widgets::button(ui, tr("Rename"), true, !name.trim().is_empty()).clicked();
                 cancel = widgets::button(ui, tr("Cancel"), false, true).clicked();
             });

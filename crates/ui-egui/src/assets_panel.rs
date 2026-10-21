@@ -25,7 +25,7 @@ use crate::FigApp;
 use crate::a11y::Tip;
 use crate::i18n::{tr, trf, trn};
 use crate::icons::{self, Icon};
-use crate::theme::{COMPONENT, Tokens, regular, semibold};
+use crate::theme::{Tokens, component, regular, semibold};
 
 const TILE_LABEL: f32 = 22.0;
 const TILE_GAP: f32 = 8.0;
@@ -45,7 +45,7 @@ const LIBRARY_REFRESH: f64 = 2.0;
 const SERVER_REFRESH: f64 = 30.0;
 /// Components listed in a team library's usage.
 const USAGE_ROWS: usize = 8;
-const PAD: f32 = 16.0;
+const PAD: f32 = crate::widgets::PAD;
 /// The team library commands the panel runs without waiting for the server.
 const TO_SERVER: &str = "library.publishToServer";
 const USAGE: &str = "library.usage";
@@ -300,11 +300,16 @@ fn search_row(app: &mut FigApp, ui: &mut Ui, w: f32) -> String {
     let t = Tokens::get(ui.ctx());
     let filter_id = Id::new("asset_filter");
     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-    let (fr, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
-    let field = Rect::from_min_max(pos2(fr.min.x + 12.0, fr.min.y + 8.0), pos2(fr.max.x - 44.0, fr.max.y - 4.0));
-    ui.painter().rect_filled(field, CornerRadius::same(5), t.field);
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(field.min.x + 12.0, field.center().y), vec2(12.0, 12.0)), Icon::Search, t.icon_secondary);
-    let te_rect = Rect::from_min_max(pos2(field.min.x + 24.0, field.center().y - 7.0), pos2(field.max.x - 6.0, field.center().y + 7.0));
+    let inset = crate::widgets::INSET;
+    let (fr, _) = ui.allocate_exact_size(vec2(w, crate::widgets::FIELD_H + 12.0), Sense::hover());
+    let field = Rect::from_min_max(
+        pos2(fr.min.x + inset, fr.min.y + 4.0),
+        pos2(fr.max.x - inset - crate::widgets::FIELD_H - 6.0, fr.min.y + 4.0 + crate::widgets::FIELD_H),
+    );
+    let field_r = CornerRadius::same(crate::widgets::FIELD_R);
+    ui.painter().rect_filled(field, field_r, t.field);
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(field.min.x + 14.0, field.center().y), vec2(14.0, 14.0)), Icon::Search, t.icon_secondary);
+    let te_rect = Rect::from_min_max(pos2(field.min.x + 28.0, field.center().y - 7.0), pos2(field.max.x - 8.0, field.center().y + 7.0));
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(te_rect));
     let r = child.add(
         egui::TextEdit::singleline(&mut filter)
@@ -316,18 +321,16 @@ fn search_row(app: &mut FigApp, ui: &mut Ui, w: f32) -> String {
     );
     crate::widgets::select_all_on_focus(ui, &r, &filter);
     if r.has_focus() {
-        ui.painter().rect_stroke(field, CornerRadius::same(5), Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(field, field_r, Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             filter.clear();
         }
     }
     ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-    let br = Rect::from_center_size(pos2(fr.max.x - 26.0, field.center().y), vec2(24.0, 24.0));
+    let br = Rect::from_min_size(pos2(field.max.x + 6.0, field.min.y), vec2(crate::widgets::FIELD_H, crate::widgets::FIELD_H));
     let bresp = ui.interact(br, Id::new("asset_libraries_btn"), Sense::click()).tip(tr("Libraries"));
-    if bresp.hovered() {
-        ui.painter().rect_filled(br, CornerRadius::same(5), t.hover);
-    }
-    icons::paint(ui.painter(), br.shrink(4.0), Icon::Library, t.icon);
+    ui.painter().rect_filled(br, field_r, if bresp.hovered() { t.hover } else { t.field });
+    icons::paint(ui.painter(), br.shrink(8.0), Icon::Library, t.icon);
     if bresp.clicked() {
         app.ui.libraries = true;
     }
@@ -357,8 +360,24 @@ fn updates_banner(app: &mut FigApp, ui: &mut Ui, w: f32, count: usize) {
 /// A section title row.
 fn title(ui: &mut Ui, w: f32, text: &str) {
     let t = Tokens::get(ui.ctx());
-    let (hr, _) = ui.allocate_exact_size(vec2(w, 32.0), Sense::hover());
-    ui.painter().text(pos2(hr.min.x + PAD, hr.center().y), Align2::LEFT_CENTER, text, semibold(11.0), t.text);
+    let (hr, _) = ui.allocate_exact_size(vec2(w, 34.0), Sense::hover());
+    ui.painter().text(pos2(hr.min.x + PAD, hr.center().y), Align2::LEFT_CENTER, text.to_uppercase(), semibold(10.0), t.text_secondary);
+}
+
+/// What an empty list holds once something is added: an icon in a tinted square beside `text`,
+/// on a card.
+fn empty_card(ui: &mut Ui, icon: Icon, tint: Color32, text: &str) {
+    let t = Tokens::get(ui.ctx());
+    let w = ui.available_width();
+    let text_w = (w - PAD * 2.0 - 64.0).max(40.0);
+    let galley = ui.painter().layout(text.to_string(), regular(11.0), t.text_secondary, text_w);
+    let h = (galley.size().y + 28.0).max(64.0);
+    let (row, _) = ui.allocate_exact_size(vec2(w, h + 8.0), Sense::hover());
+    let card = Rect::from_min_max(pos2(row.min.x + crate::widgets::INSET, row.min.y), pos2(row.max.x - crate::widgets::INSET, row.min.y + h));
+    ui.painter().rect(card, CornerRadius::same(9), t.card, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+    let tile = Rect::from_min_size(pos2(card.min.x + 12.0, card.center().y - 18.0), vec2(36.0, 36.0));
+    crate::widgets::icon_tile(ui.painter(), tile, icon, tint, tint, 18.0);
+    ui.painter().galley(pos2(tile.max.x + 12.0, card.center().y - galley.size().y / 2.0), galley, t.text_secondary);
 }
 
 /// A library's (or, with `folder`, a folder's) title row with its open/closed chevron; returns
@@ -439,10 +458,8 @@ fn tiles(ui: &mut Ui, w: f32, src: &Source, list: &[Tile], thumbs: &Thumbs, want
                 Id::new(("asset", src, item.id.0)),
                 Sense::click_and_drag(),
             );
-            ui.painter().rect_filled(r, CornerRadius::same(6), t.field);
-            if resp.hovered() {
-                ui.painter().rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, COMPONENT), egui::StrokeKind::Inside);
-            }
+            let border = if resp.hovered() { component() } else { t.card_border };
+            ui.painter().rect(r, CornerRadius::same(8), t.card, Stroke::new(1.0, border), egui::StrokeKind::Inside);
             match thumbs.map.get(&(src.clone(), item.id)).and_then(Option::as_ref) {
                 Some(tex) => {
                     let size = tex.size_vec2();
@@ -456,7 +473,7 @@ fn tiles(ui: &mut Ui, w: f32, src: &Source, list: &[Tile], thumbs: &Thumbs, want
                     ui.painter(),
                     Rect::from_center_size(r.center(), vec2(20.0, 20.0)),
                     if item.set { Icon::ComponentSet } else { Icon::Component },
-                    COMPONENT,
+                    component(),
                 ),
             }
             let label = Rect::from_min_size(pos2(x, r.max.y + 2.0), vec2(tile, TILE_LABEL - 4.0));
@@ -496,7 +513,7 @@ fn style_rows(ui: &mut Ui, w: f32, src: &Source, list: &[StyleRow], act: &mut Op
     for s in list {
         let (r, resp) = ui.allocate_exact_size(vec2(w, 28.0), Sense::click());
         if resp.hovered() {
-            ui.painter().rect_filled(r.shrink2(vec2(8.0, 1.0)), CornerRadius::same(5), t.hover);
+            ui.painter().rect_filled(r.shrink2(vec2(8.0, 1.0)), CornerRadius::same(6), t.hover);
         }
         let icon_rect = Rect::from_center_size(pos2(r.min.x + 22.0, r.center().y), vec2(14.0, 14.0));
         let icon = match &s.kind {
@@ -616,7 +633,7 @@ pub fn show(app: &mut FigApp, ui: &mut Ui) {
         if listing.local.is_empty() {
             if q.is_empty() {
                 let keys = crate::toolbar::pretty_shortcut(crate::shortcuts::shortcut("component.create").unwrap_or(""));
-                hint(ui, &trf("No components yet. Select layers and press {keys}.", &[("keys", &keys)]));
+                empty_card(ui, Icon::Component, component(), &trf("No components yet. Select layers and press {keys}.", &[("keys", &keys)]));
             } else {
                 hint(ui, tr("No matching components"));
             }
@@ -626,7 +643,12 @@ pub fn show(app: &mut FigApp, ui: &mut Ui) {
         ui.add_space(4.0);
         title(ui, w, tr("Local styles"));
         if listing.local_styles.is_empty() {
-            hint(ui, if q.is_empty() { tr("No styles yet.") } else { tr("No matching styles") });
+            if q.is_empty() {
+                let t = Tokens::get(ui.ctx());
+                empty_card(ui, Icon::Styles, t.accent, tr("No styles yet."));
+            } else {
+                hint(ui, tr("No matching styles"));
+            }
         }
         style_rows(ui, w, &Source::Local, &listing.local_styles, &mut act);
         for sec in &listing.libraries {
@@ -764,7 +786,7 @@ fn ghost(ui: &Ui, p: Pos2, set: bool, tex: Option<egui::TextureHandle>) {
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, Id::new("asset_ghost")));
     let r = Rect::from_center_size(p, vec2(64.0, 64.0));
     painter.rect_filled(r, CornerRadius::same(6), t.panel.gamma_multiply(0.9));
-    painter.rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, COMPONENT), egui::StrokeKind::Inside);
+    painter.rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, component()), egui::StrokeKind::Inside);
     match tex {
         Some(tex) => {
             let size = tex.size_vec2();
@@ -780,7 +802,7 @@ fn ghost(ui: &Ui, p: Pos2, set: bool, tex: Option<egui::TextureHandle>) {
             &painter,
             Rect::from_center_size(r.center(), vec2(20.0, 20.0)),
             if set { Icon::ComponentSet } else { Icon::Component },
-            COMPONENT,
+            component(),
         ),
     }
 }

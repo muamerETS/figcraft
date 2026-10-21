@@ -44,8 +44,8 @@ pub struct Job {
     pub zoom_preview: bool,
     /// When the UI asked for it: how long the image took to reach the screen.
     pub at: Instant,
-    /// The backdrop grid's spacing in page units ([`figcraft_render::Options::grid`]).
-    pub grid: Option<f64>,
+    /// A background standing in for the page's own (the theme's, for a default page).
+    pub background: Option<figcraft_color::Color>,
 }
 
 pub struct Done {
@@ -97,8 +97,7 @@ fn run(job: &Job, view: &View, retained: &mut Retained, coarse: bool) -> Option<
         skip: job.skip.clone(),
         solo: job.solo,
         lod: true,
-        grid: job.grid,
-        ..Default::default()
+        background: job.background,
     };
     let (view, pix, work) = retained.render(&job.doc, job.page, view, &opts)?;
     let mut image = screen_image(pix, job.doc.color_profile);

@@ -510,7 +510,7 @@ fn the_glass_light_intensity_field_has_a_label() {
 }
 
 /// A glass settings field's width in the Design panel at its default width.
-const GLASS_FIELD_W: f32 = 98.5;
+const GLASS_FIELD_W: f32 = 95.0;
 
 /// The light intensity label this fix adds fits whole beside its value in every language (#256).
 /// Other glass labels may end in "…" in some languages (es "Profundidad"); a longer
@@ -519,8 +519,9 @@ const GLASS_FIELD_W: f32 = 98.5;
 fn the_intensity_label_fits_whole_in_every_language() {
     use crate::i18n::{self, Text};
     let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx, false, 0);
     let mut out = ctx.run_ui(Default::default(), |ui| {
-        let width = |s: &str| ui.painter().layout_no_wrap(s.to_string(), crate::theme::regular(11.0), egui::Color32::WHITE).size().x;
+        let width = |s: &str| ui.painter().layout_no_wrap(s.to_string(), crate::theme::semibold(11.0), egui::Color32::WHITE).size().x;
         for lang in i18n::languages() {
             let label = lang.ui.iter().find(|(k, _)| *k == "Intensity").map_or("Intensity", |(_, t)| match t {
                 Text::Plain(s) | Text::Plural { other: s, .. } => s,
@@ -535,6 +536,7 @@ fn the_intensity_label_fits_whole_in_every_language() {
 #[test]
 fn a_label_too_long_for_its_field_ends_in_an_ellipsis_before_the_value() {
     let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx, false, 0);
     let mut field = egui::Rect::NOTHING;
     let mut out = ctx.run_ui(Default::default(), |ui| {
         let lead = crate::widgets::Lead::Text("A label much wider than its field");

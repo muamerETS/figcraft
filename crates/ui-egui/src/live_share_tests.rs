@@ -470,6 +470,16 @@ fn the_server_preference_resets_and_turns_online_sharing_off() {
     h.app.ui.preferences = true;
     let shapes = h.frames(2);
     assert!(has_text(&shapes, "Server for online sharing") && has_text(&shapes, "Reset"));
+    // Sharing is the last section: the window scrolls down to it.
+    let over = text_center(&shapes, "Keep tool selected after use");
+    let wheel = Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -2000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Default::default(),
+    };
+    h.frame(vec![Event::PointerMoved(over), wheel]);
+    let shapes = h.frames(20);
     click(&mut h, &shapes, "Reset");
     assert_eq!(h.app.session.prefs.publish_server, DEFAULT_SERVER);
     // Off: Preferences say what that means, and the popover offers the local network only.

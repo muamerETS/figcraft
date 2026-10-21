@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use egui::{Align2, Color32, Context, CornerRadius, RichText, Sense, Stroke, vec2};
+use egui::{Align2, Color32, Context, CornerRadius, Rect, RichText, Sense, Stroke, vec2};
 use figcraft_color::ColorProfile;
 use figcraft_doc::{ExportFormat, ExportSetting, ExportSize, NodeId};
 use figcraft_engine::cmd::file::{export_jobs, exportable_layers};
@@ -11,9 +11,9 @@ use serde_json::{Value, json};
 
 use crate::FigApp;
 use crate::export_panel::{export_layers, save_one, suggested_name};
-use crate::i18n::{self, tr, tr_noop, trf, trn};
+use crate::i18n::{self, tr, trf, trn};
 use crate::icons::{self, Icon};
-use crate::theme::{ACCENT, Tokens, regular, semibold};
+use crate::theme::{Tokens, accent, regular, semibold};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -51,17 +51,195 @@ figcraft.exe",
 }
 
 /// A dialog window, centred.
-pub(crate) fn window<'a>(title: &'a str, ctx: &Context) -> egui::Window<'a> {
+pub(crate) fn window<'a>(title: &'a str, ctx: &Context) -> Dialog<'a> {
     floating(title, ctx).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
 }
 
 /// A window styled like the dialogs that the user can move.
-pub(crate) fn floating<'a>(title: &'a str, ctx: &Context) -> egui::Window<'a> {
+pub(crate) fn floating<'a>(title: &'a str, ctx: &Context) -> Dialog<'a> {
     let t = Tokens::get(ctx);
-    egui::Window::new(title)
-        .collapsible(false)
-        .resizable(false)
-        .frame(egui::Frame::window(&ctx.global_style()).fill(t.panel).inner_margin(egui::Margin::same(20)))
+    let win = egui::Window::new(title).collapsible(false).resizable(false).title_bar(false);
+    Dialog { win, title, open: None, bar: true, frame: egui::Frame::window(&ctx.global_style()).fill(t.panel) }
+}
+
+/// The dialogs' space around their content, left and right.
+pub(crate) const DIALOG_PAD: f32 = 20.0;
+/// The height of a dialog's title bar.
+const BAR_H: f32 = 44.0;
+
+/// A dialog window: its own title bar (the title on the left, the close button on the right, a
+/// line under them), then the content.
+pub(crate) struct Dialog<'a> {
+    win: egui::Window<'a>,
+    title: &'a str,
+    open: Option<&'a mut bool>,
+    bar: bool,
+    frame: egui::Frame,
+}
+
+impl<'a> Dialog<'a> {
+    pub fn id(mut self, id: egui::Id) -> Self {
+        self.win = self.win.id(id);
+        self
+    }
+
+    pub fn open(mut self, open: &'a mut bool) -> Self {
+        self.open = Some(open);
+        self
+    }
+
+    pub fn order(mut self, order: egui::Order) -> Self {
+        self.win = self.win.order(order);
+        self
+    }
+
+    pub fn anchor(mut self, align: Align2, offset: egui::Vec2) -> Self {
+        self.win = self.win.anchor(align, offset);
+        self
+    }
+
+    pub fn pivot(mut self, pivot: Align2) -> Self {
+        self.win = self.win.pivot(pivot);
+        self
+    }
+
+    pub fn default_pos(mut self, pos: egui::Pos2) -> Self {
+        self.win = self.win.default_pos(pos);
+        self
+    }
+
+    pub fn movable(mut self, movable: bool) -> Self {
+        self.win = self.win.movable(movable);
+        self
+    }
+
+    pub fn interactable(mut self, interactable: bool) -> Self {
+        self.win = self.win.interactable(interactable);
+        self
+    }
+
+    pub fn fade_in(mut self, fade_in: bool) -> Self {
+        self.win = self.win.fade_in(fade_in);
+        self
+    }
+
+    /// Without the title bar (and its close button).
+    pub fn title_bar(mut self, bar: bool) -> Self {
+        self.bar = bar;
+        self
+    }
+
+    pub fn show<R>(self, ctx: &Context, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<egui::InnerResponse<Option<R>>> {
+        let Dialog { win, title, open, bar, frame } = self;
+        if open.as_deref() == Some(&false) {
+            return None;
+        }
+        let pad = DIALOG_PAD as i8;
+        if !bar {
+            return win.frame(frame.inner_margin(egui::Margin { left: pad, right: pad, top: 12, bottom: 12 })).show(ctx, add);
+        }
+        let mut closed = false;
+        let shown = win.frame(frame.inner_margin(0)).show(ctx, |ui| {
+            let t = Tokens::get(ui.ctx());
+            let spacing = ui.spacing().item_spacing;
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let top = ui.cursor().min;
+            ui.allocate_exact_size(vec2(0.0, BAR_H), Sense::hover());
+            let inner = egui::Frame::NONE
+                .inner_margin(egui::Margin { left: pad, right: pad, top: 16, bottom: 16 })
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = spacing;
+                    add(ui)
+                })
+                .inner;
+            let bar_r = Rect::from_min_size(top, vec2(ui.min_rect().width(), BAR_H));
+            let close = Rect::from_center_size(egui::pos2(bar_r.max.x - DIALOG_PAD + 2.0 - 12.0, bar_r.center().y), vec2(26.0, 26.0));
+            let shown_title = crate::widgets::elide(ui, title, (close.min.x - bar_r.min.x - DIALOG_PAD - 8.0).max(40.0));
+            ui.painter().text(egui::pos2(bar_r.min.x + DIALOG_PAD, bar_r.center().y), Align2::LEFT_CENTER, shown_title, semibold(13.0), t.text);
+            let resp = ui.interact(close, ui.id().with("dialog_close"), Sense::click());
+            crate::a11y::button(&resp, tr("Close"));
+            if resp.hovered() {
+                ui.painter().rect_filled(close, CornerRadius::same(6), t.hover);
+            }
+            icons::paint(
+                ui.painter(),
+                Rect::from_center_size(close.center(), vec2(12.0, 12.0)),
+                Icon::Close,
+                if resp.hovered() { t.icon } else { t.icon_secondary },
+            );
+            closed = resp.clicked();
+            ui.painter().line_segment([bar_r.left_bottom(), bar_r.right_bottom()], Stroke::new(1.0, t.border));
+            inner
+        });
+        if closed && let Some(open) = open {
+            *open = false;
+        }
+        shown
+    }
+}
+
+/// What marks a dialog's lead: an icon, or a character for what there's no icon for.
+pub(crate) enum Mark {
+    Icon(Icon),
+    Glyph(&'static str),
+}
+
+/// A dialog's lead, `w` wide: `mark` in a square tinted `tint`, beside `title` and, under it, `sub`.
+pub(crate) fn dialog_lead(ui: &mut egui::Ui, w: f32, mark: Mark, tint: Color32, title: &str, sub: &str) {
+    let t = Tokens::get(ui.ctx());
+    let text_w = (w - 52.0).max(80.0);
+    let title_g = ui.painter().layout(title.to_string(), semibold(13.0), t.text, text_w);
+    let sub_g = (!sub.is_empty()).then(|| ui.painter().layout(sub.to_string(), regular(11.5), t.text_secondary, text_w));
+    let text_h = title_g.size().y + sub_g.as_ref().map_or(0.0, |g| 4.0 + g.size().y);
+    let (r, _) = ui.allocate_exact_size(vec2(w, text_h.max(40.0)), Sense::hover());
+    let tile = Rect::from_min_size(r.min, vec2(40.0, 40.0));
+    ui.painter().rect_filled(tile, CornerRadius::same(9), tint.gamma_multiply(0.16));
+    match mark {
+        Mark::Icon(i) => icons::paint(ui.painter(), Rect::from_center_size(tile.center(), vec2(18.0, 18.0)), i, tint),
+        Mark::Glyph(g) => {
+            ui.painter().text(tile.center(), Align2::CENTER_CENTER, g, semibold(18.0), tint);
+        }
+    }
+    let x = tile.max.x + 12.0;
+    let top = if text_h < 40.0 { r.min.y + (40.0 - text_h) / 2.0 } else { r.min.y };
+    let title_h = title_g.size().y;
+    ui.painter().galley(egui::pos2(x, top), title_g, t.text);
+    if let Some(g) = sub_g {
+        ui.painter().galley(egui::pos2(x, top + title_h + 4.0), g, t.text_secondary);
+    }
+}
+
+/// A dialog's buttons, `w` wide, laid out from the right (the first one `add` draws is the
+/// rightmost).
+pub(crate) fn dialog_buttons(ui: &mut egui::Ui, w: f32, add: impl FnOnce(&mut egui::Ui)) {
+    ui.add_space(16.0);
+    // The line above the buttons spans the window, across its margins.
+    let t = Tokens::get(ui.ctx());
+    let (line, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
+    ui.painter().line_segment(
+        [egui::pos2(line.min.x - DIALOG_PAD, line.center().y), egui::pos2(line.min.x + w + DIALOG_PAD, line.center().y)],
+        Stroke::new(1.0, t.border),
+    );
+    ui.add_space(14.0);
+    ui.allocate_ui_with_layout(vec2(w, crate::widgets::FIELD_H), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        add(ui);
+    });
+}
+
+/// A card holding a dialog's list.
+pub(crate) fn list_card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let t = Tokens::get(ui.ctx());
+    egui::Frame::new()
+        .fill(t.card)
+        .stroke(Stroke::new(1.0, t.card_border))
+        .corner_radius(CornerRadius::same(9))
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui)
+        })
+        .inner
 }
 
 /// The About window's tabs.
@@ -99,30 +277,39 @@ pub const ABOUT_WIDTH: f32 = 660.0;
 /// The About window's tab row, drawn like the Design / Prototype tabs of the right panel.
 /// A row of tabs (the About window's, the shortcuts panel's): the current one highlighted.
 pub(crate) fn tab_strip<T: Copy + PartialEq>(ui: &mut egui::Ui, t: &Tokens, tabs: &[T], label: fn(T) -> &'static str, current: &mut T) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
-        for &tab in tabs {
-            let label = label(tab);
-            let active = *current == tab;
-            let galley = ui.painter().layout_no_wrap(label.into(), semibold(11.0), if active { t.text } else { t.text_secondary });
-            let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 16.0, 24.0), Sense::click());
-            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, label));
-            if active || resp.hovered() {
-                ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
-            }
-            ui.painter().galley(egui::pos2(r.min.x + 8.0, r.center().y - galley.size().y / 2.0), galley, t.text);
-            if resp.clicked() {
-                *current = tab;
-            }
+    let galleys: Vec<_> = tabs
+        .iter()
+        .map(|&tab| ui.painter().layout_no_wrap(label(tab).into(), semibold(11.5), if *current == tab { t.text } else { t.text_secondary }))
+        .collect();
+    let widths: Vec<f32> = galleys.iter().map(|g| g.size().x + 24.0).collect();
+    let (track, _) = ui.allocate_exact_size(vec2(widths.iter().sum::<f32>() + 6.0, 32.0), Sense::hover());
+    ui.painter().rect_filled(track, CornerRadius::same(8), t.field);
+    let mut x = track.min.x + 3.0;
+    for ((&tab, galley), w) in tabs.iter().zip(galleys).zip(widths) {
+        let label = label(tab);
+        let active = *current == tab;
+        let r = Rect::from_min_size(egui::pos2(x, track.min.y + 3.0), vec2(w, track.height() - 6.0));
+        x += w;
+        let resp = ui.interact(r, ui.id().with(("tab_strip", label)), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, label));
+        if active {
+            ui.painter().rect_filled(r.translate(vec2(0.0, 1.0)), CornerRadius::same(6), Color32::from_black_alpha(24));
+            ui.painter().rect_filled(r, CornerRadius::same(6), t.panel);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(r, CornerRadius::same(6), t.hover);
         }
-    });
+        ui.painter().galley(egui::pos2(r.center().x - galley.size().x / 2.0, r.center().y - galley.size().y / 2.0), galley, t.text);
+        if resp.clicked() {
+            *current = tab;
+        }
+    }
 }
 
 /// About ▸ About: the logo, version, blurb and links.
 fn about_body(ui: &mut egui::Ui, t: &Tokens) {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
-        ui.painter().rect_filled(r, CornerRadius::same(10), ACCENT);
+        ui.painter().rect_filled(r, CornerRadius::same(8), accent());
         icons::paint(ui.painter(), r.shrink(10.0), Icon::Logo, Color32::WHITE);
         ui.vertical(|ui| {
             ui.label(RichText::new("FigCraft").font(semibold(18.0)));
@@ -198,145 +385,31 @@ pub fn show(app: &mut FigApp, ctx: &Context) {
             app.ui.about = false;
         }
     }
-    if app.ui.preferences {
-        let mut open = true;
-        window(tr("Preferences"), ctx).open(&mut open).show(ctx, |ui| {
-            ui.set_width(360.0);
-            let prefs = app.session.prefs.clone();
-            let mut toggles = vec![];
-            for (label, val, cmd) in [
-                (tr("Keep tool selected after use"), prefs.keep_tool, "pref.keepTool"),
-                (tr("Highlight layers on hover"), prefs.highlight_on_hover, "pref.highlightHover"),
-                (tr("Rename duplicated layers"), prefs.rename_duplicates, "pref.renameDuplicates"),
-                (tr("Show dimensions on objects"), prefs.show_dimensions, "pref.showDimensions"),
-                (tr("Use number keys for opacity"), prefs.number_keys_opacity, "pref.numberKeysOpacity"),
-                (tr("Reduce motion"), prefs.reduce_motion, "pref.reduceMotion"),
-            ] {
-                if crate::widgets::checkbox(ui, val, label) {
-                    toggles.push(cmd);
-                }
-            }
-            if app.services.reduce_motion() {
-                crate::widgets::label(ui, tr("Your system asks for reduced motion: animations stay off."), t.text_secondary);
-            }
-            // The browser has no files to save to.
-            if !cfg!(target_arch = "wasm32") && crate::widgets::checkbox(ui, prefs.auto_save, tr("Save files automatically")) {
-                toggles.push("pref.autoSave");
-            }
-            for c in toggles {
-                app.run(c, json!({}));
-            }
-            // Where the app registers itself as the opener of invite links (Windows).
-            if let Some(on) = app.session.invite_links_on() {
-                if crate::widgets::checkbox(ui, on, tr("Open invite links in FigCraft")) {
-                    app.run("collab.registerLinks", json!({"on": !on}));
-                }
-                crate::widgets::label(
-                    ui,
-                    tr("figcraft:// links from a browser, chat or email open this app and join the session."),
-                    t.text_secondary,
-                );
-            }
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(tr("Your name in comments"));
-                if let Some(name) = crate::widgets::text_field(ui, egui::Id::new("pref_user_name"), &prefs.user_name, 160.0, tr("You")) {
-                    app.run("pref.userName", json!({"name": name}));
-                }
-            });
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(tr("Server for online sharing"));
-                // Where Share ▸ Online keeps files and join codes are asked; no key here
-                // (preferences are saved as text).
-                let name = tr("Server for online sharing");
-                if let Some(url) = crate::widgets::text_field_named(ui, egui::Id::new("pref_publish_server"), &prefs.publish_server, 220.0, name) {
-                    app.run("pref.publishServer", json!({"url": url}));
-                }
-                let usual = prefs.publish_server == figcraft_engine::live::DEFAULT_SERVER;
-                if crate::widgets::button(ui, tr("Reset"), false, !usual).on_hover_text(tr("Back to the FigCraft server")).clicked() {
-                    app.run("pref.publishServer", json!({}));
-                }
-            });
-            if prefs.publish_server.is_empty() {
-                crate::widgets::label(ui, tr("Online sharing is off: files are shared on the local network only."), t.text_secondary);
-            }
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(tr("Nudge amount"));
-                let mut small = prefs.nudge_small;
-                let mut big = prefs.nudge_big;
-                let a = ui.add(egui::DragValue::new(&mut small).range(0.1..=100.0));
-                let b = ui.add(egui::DragValue::new(&mut big).range(1.0..=1000.0));
-                if a.changed() || b.changed() {
-                    app.run("pref.nudge", json!({"small": small, "big": big}));
-                }
-            });
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(tr("Theme"));
-                for (l, c) in [(tr_noop("Light"), "view.themeLight"), (tr_noop("Dark"), "view.themeDark"), (tr_noop("System"), "view.themeSystem")] {
-                    if ui.selectable_label(app.session.prefs.theme.eq_ignore_ascii_case(l), tr(l)).clicked() {
-                        app.run(c, json!({}));
-                    }
-                }
-            });
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(tr("Language"));
-                // Each language by its own name; System follows the OS (the browser on the web).
-                let langs = || {
-                    [("system", tr("System"))]
-                        .into_iter()
-                        .chain(i18n::languages().iter().filter(|l| crate::cjk::can_show(l.code)).map(|l| (l.code, l.name)))
-                };
-                let on = |code: &str| app.session.prefs.language.eq_ignore_ascii_case(code);
-                let selected = langs().find(|(code, _)| on(code)).map_or(tr("System"), |(_, name)| name);
-                let resp = crate::widgets::dropdown(ui, selected, 220.0, None);
-                let mut pick = None;
-                crate::right::menu_popup(&resp).show(|ui| {
-                    for (code, name) in langs() {
-                        if crate::right::menu_check(ui, on(code), name, "") {
-                            pick = Some(code);
-                            ui.close();
-                        }
-                    }
-                });
-                if let Some(code) = pick {
-                    app.run("pref.language", json!({"language": code}));
-                    ui.ctx().request_repaint();
-                }
-            });
-            if let Some(lang) = i18n::current().filter(|l| l.draft) {
-                let note = trf("{language}: draft translation, waiting for a native speaker's review.", &[("language", &lang.name)]);
-                crate::widgets::label(ui, &note, t.text_secondary);
-            }
-        });
-        if !open {
-            app.ui.preferences = false;
-        }
-    }
+    crate::preferences::show(app, ctx);
     crate::shortcuts_panel::show(app, ctx);
     if let Some((mut find, mut replace)) = app.ui.find.clone() {
         let mut open = true;
         let mut action = None;
-        egui::Window::new(tr("Find and replace"))
+        floating(tr("Find and replace"), ctx)
             .id(egui::Id::new("Find and replace"))
             .open(&mut open)
             .anchor(Align2::LEFT_TOP, vec2(260.0, 120.0))
-            .resizable(false)
             .show(ctx, |ui| {
-                ui.set_width(280.0);
-                let r = ui.add(egui::TextEdit::singleline(&mut find).hint_text(tr("Find")).desired_width(260.0));
+                const W: f32 = 300.0;
+                ui.set_width(W);
+                ui.spacing_mut().item_spacing.y = 8.0;
+                let r = crate::widgets::text_input(ui, egui::Id::new("find_text"), &mut find, W, tr("Find"));
                 crate::widgets::select_all_on_focus(ui, &r, &find);
-                let r = ui.add(egui::TextEdit::singleline(&mut replace).hint_text(tr("Replace with")).desired_width(260.0));
+                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let r = crate::widgets::text_input(ui, egui::Id::new("replace_text"), &mut replace, W, tr("Replace with"));
                 crate::widgets::select_all_on_focus(ui, &r, &replace);
-                ui.horizontal(|ui| {
-                    if ui.button(tr("Find")).clicked() {
-                        action = Some(false);
-                    }
-                    if ui.button(tr("Replace all")).clicked() {
+                let ok = !find.is_empty();
+                dialog_buttons(ui, W, |ui| {
+                    if crate::widgets::button(ui, tr("Replace all"), true, ok).clicked() {
                         action = Some(true);
+                    }
+                    if crate::widgets::button(ui, tr("Find"), false, ok).clicked() || enter {
+                        action = Some(false);
                     }
                 });
             });
@@ -496,51 +569,68 @@ fn batch_rename_dialog(app: &mut FigApp, ctx: &Context) {
     let mut cancel = false;
     let mut apply = false;
     window(tr("Rename layers"), ctx).id(egui::Id::new("Rename layers")).open(&mut open).show(ctx, |ui| {
-        ui.set_width(320.0);
-        ui.label(RichText::new(trn("{n} layers", n, &[])).color(t.text_secondary));
-        ui.add_space(6.0);
-        let r = ui.add(egui::TextEdit::singleline(&mut b.find).hint_text(tr("Match (empty: the whole name)")).desired_width(300.0));
+        const W: f32 = 340.0;
+        ui.set_width(W);
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.label(RichText::new(trn("{n} layers", n, &[])).font(regular(11.5)).color(t.text_secondary));
+        let r = crate::widgets::text_input(ui, egui::Id::new("rename_find"), &mut b.find, W, tr("Match (empty: the whole name)"));
         crate::widgets::select_all_on_focus(ui, &r, &b.find);
         if crate::widgets::checkbox(ui, b.regex, tr("Regular expression")) {
             b.regex = !b.regex;
         }
-        let to = ui.add(egui::TextEdit::singleline(&mut b.to).hint_text(tr("Rename to")).desired_width(300.0));
+        let to = crate::widgets::text_input(ui, egui::Id::new("rename_to"), &mut b.to, W, tr("Rename to"));
         crate::widgets::select_all_on_focus(ui, &to, &b.to);
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
             for (label, code) in [(tr("Current name"), "$&"), (tr("Number ↑"), "$n"), (tr("Number ↓"), "$N")] {
-                if ui.button(label).clicked() {
+                if crate::widgets::button(ui, label, false, true).clicked() {
                     b.to.push_str(code);
                     to.request_focus();
                 }
             }
         });
         ui.horizontal(|ui| {
-            ui.label(tr("Start ascending from / stop descending at"));
-            ui.add(egui::DragValue::new(&mut b.start).range(0..=1_000_000));
+            ui.label(RichText::new(tr("Start ascending from / stop descending at")).font(regular(11.5)).color(t.text));
+            ui.allocate_ui_with_layout(vec2(ui.available_width(), crate::widgets::FIELD_H), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let shown = b.start.to_string();
+                if let Some(v) =
+                    crate::widgets::text_field(ui, egui::Id::new("rename_start"), &shown, 72.0, "").and_then(|s| s.trim().parse::<u32>().ok())
+                {
+                    b.start = v.min(1_000_000);
+                }
+            });
         });
-        ui.add_space(8.0);
         match &rename {
             Err(e) => {
-                ui.label(RichText::new(e).color(t.danger));
+                ui.label(RichText::new(e).font(regular(11.5)).color(t.danger));
             }
-            Ok(_) => {
-                for (old, new) in &preview {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(old).color(t.text_secondary));
-                        ui.label("→");
-                        ui.label(new);
+            Ok(_) if !preview.is_empty() => {
+                egui::Frame::new()
+                    .fill(t.card)
+                    .stroke(Stroke::new(1.0, t.card_border))
+                    .corner_radius(CornerRadius::same(8))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        for (old, new) in &preview {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(old).font(regular(11.5)).color(t.text_secondary));
+                                ui.label(RichText::new("→").font(regular(11.5)).color(t.text_tertiary));
+                                ui.label(RichText::new(new).font(semibold(11.5)).color(t.text));
+                            });
+                        }
+                        if ready && n > PREVIEW_ROWS {
+                            ui.label(RichText::new(trn("and {n} more", n - PREVIEW_ROWS, &[])).font(regular(11.0)).color(t.text_secondary));
+                        }
                     });
-                }
-                if ready && n > PREVIEW_ROWS {
-                    ui.label(RichText::new(trn("and {n} more", n - PREVIEW_ROWS, &[])).color(t.text_secondary));
-                }
             }
+            Ok(_) => {}
         }
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            cancel = crate::widgets::button(ui, tr("Cancel"), false, true).clicked();
+        dialog_buttons(ui, W, |ui| {
             let enter = to.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             apply = (crate::widgets::button(ui, tr("Rename"), true, ready).clicked() || enter) && ready;
+            cancel = crate::widgets::button(ui, tr("Cancel"), false, true).clicked();
         });
     });
     if apply {
@@ -561,7 +651,8 @@ fn color_profile_dialog(app: &mut FigApp, ctx: &Context) {
     let mut open = true;
     let mut apply = None;
     window(tr("Color profile"), ctx).open(&mut open).show(ctx, |ui| {
-        ui.set_width(340.0);
+        const W: f32 = 340.0;
+        ui.set_width(W);
         ui.label(RichText::new(tr("Color values in this file are in this color space.")).color(t.text_secondary).font(regular(11.0)));
         ui.add_space(8.0);
         for p in ColorProfile::ALL {
@@ -590,8 +681,7 @@ fn color_profile_dialog(app: &mut FigApp, ctx: &Context) {
                     .font(regular(11.0)),
             );
         }
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
+        dialog_buttons(ui, W, |ui| {
             if crate::widgets::button(ui, tr("Keep appearance"), true, true).clicked() {
                 apply = Some(true);
             }
@@ -677,27 +767,40 @@ fn export_dialog(app: &mut FigApp, ctx: &Context) {
         preset(1.0, ExportFormat::Pdf),
     ];
     let mut choice = None;
+    const W: f32 = 340.0;
     window(tr("Export"), ctx).open(&mut open).show(ctx, |ui| {
-        ui.set_width(320.0);
+        ui.set_width(W);
         let caption = |ui: &mut egui::Ui, s: &str| {
             ui.label(RichText::new(s).font(regular(11.0)).color(t.text_secondary));
         };
+        let title = |ui: &mut egui::Ui, s: &str| {
+            let (r, _) = ui.allocate_exact_size(vec2(W, 24.0), Sense::hover());
+            ui.painter().text(r.left_center(), Align2::LEFT_CENTER, s.to_uppercase(), semibold(10.0), t.text_secondary);
+        };
         let divider = |ui: &mut egui::Ui| {
-            ui.add_space(10.0);
-            let (r, _) = ui.allocate_exact_size(vec2(320.0, 1.0), Sense::hover());
+            ui.add_space(12.0);
+            let (r, _) = ui.allocate_exact_size(vec2(W, 1.0), Sense::hover());
             ui.painter().line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, t.border));
             ui.add_space(10.0);
         };
-        let row = |ui: &mut egui::Ui, label: &str| {
-            let (r, resp) = ui.allocate_exact_size(vec2(320.0, 30.0), Sense::click());
-            if resp.hovered() {
-                ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
-            }
-            ui.painter().text(r.left_center() + vec2(10.0, 0.0), Align2::LEFT_CENTER, label, regular(12.0), t.text);
+        // A choice on a card: `label` and, under it, `sub`.
+        let tile = |ui: &mut egui::Ui, w: f32, label: &str, sub: &str| {
+            let (r, resp) = ui.allocate_exact_size(vec2(w, 48.0), Sense::click());
+            crate::a11y::button(&resp, label);
+            let border = if resp.hovered() { t.accent } else { t.card_border };
+            ui.painter().rect(
+                r,
+                CornerRadius::same(8),
+                if resp.hovered() { t.hover } else { t.card },
+                Stroke::new(1.0, border),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter().text(egui::pos2(r.min.x + 12.0, r.center().y - 7.0), Align2::LEFT_CENTER, label, semibold(12.0), t.text);
+            ui.painter().text(egui::pos2(r.min.x + 12.0, r.center().y + 8.0), Align2::LEFT_CENTER, sub, regular(10.5), t.text_secondary);
             resp.clicked()
         };
         if !jobs.is_empty() {
-            caption(ui, tr("With the layers' export settings"));
+            title(ui, tr("With the layers' export settings"));
             const SHOWN: usize = 6;
             for j in jobs.iter().take(SHOWN) {
                 ui.label(RichText::new(&j.file).font(regular(12.0)).color(t.text));
@@ -713,27 +816,33 @@ fn export_dialog(app: &mut FigApp, ctx: &Context) {
             }
             divider(ui);
         }
-        caption(ui, &trn("{n} layers as one file", ids.len(), &[]));
+        title(ui, &trn("{n} layers as one file", ids.len(), &[]));
         ui.add_space(4.0);
-        for p in &presets {
-            let label = if p.format.is_raster() { format!("{} @{}", p.format.label(), p.size.label()) } else { p.format.label().to_string() };
-            if row(ui, &label) {
-                choice = Some(ExportChoice::Once(p.clone()));
-            }
+        let cell = (W - 8.0) / 2.0;
+        for pair in presets.chunks(2) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                for p in pair {
+                    let sub = if p.format.is_raster() { format!("@{}", p.size.label()) } else { tr("Vector").to_string() };
+                    if tile(ui, cell, p.format.label(), &sub) {
+                        choice = Some(ExportChoice::Once(p.clone()));
+                    }
+                }
+            });
+            ui.add_space(8.0);
         }
         // The PDF preset's print options.
-        ui.add_space(6.0);
-        caption(ui, tr("PDF print options"));
+        ui.add_space(4.0);
+        title(ui, tr("PDF print options"));
         if let Some(next) = crate::export_panel::print_options(ui, egui::Id::new("export_dialog_print"), &print) {
             app.ui.pdf_print = next;
         }
         divider(ui);
-        caption(ui, tr("The whole file"));
+        title(ui, tr("The whole file"));
         ui.add_space(4.0);
-        if row(ui, tr(".fig (experimental)")) {
+        if tile(ui, W, tr(".fig (experimental)"), tr("Other apps may not open every .fig file exported here.")) {
             choice = Some(ExportChoice::Fig);
         }
-        caption(ui, tr("Other apps may not open every .fig file exported here."));
     });
     let close = choice.is_some() || !open;
     match choice {

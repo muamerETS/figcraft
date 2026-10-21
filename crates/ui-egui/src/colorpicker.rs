@@ -1,7 +1,7 @@
 //! The colour picker popover: paint type, saturation/brightness square, hue and alpha sliders,
 //! hex and RGB fields, gradient stops, image and pattern fills and document colours.
 
-use egui::{Align2, Color32, CornerRadius, Id, Mesh, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use figcraft_color::{
     Color, ColorStop, Gradient, GradientKind, Hsb, ImageFilters, ImageScaleMode, Paint, PaintKind, PatternAlign, PatternPaint, PatternTile,
 };
@@ -339,29 +339,30 @@ fn hue_color(ctx: &egui::Context, h: f32) -> Color32 {
     doc_c32(ctx, Hsb { h, s: 1.0, b: 1.0 }.to_color())
 }
 
+/// The picker's square and sliders: rounded like the panels' fields.
+const PICK_R: u8 = 10;
+const SLIDER_H: f32 = 12.0;
+
+/// A knob on the square or a slider: a white ring around the colour it picks, with a soft shadow.
+fn knob(painter: &egui::Painter, at: Pos2, r: f32, fill: Color32) {
+    painter.circle_filled(at + vec2(0.0, 1.0), r + 1.5, Color32::from_black_alpha(50));
+    painter.circle_filled(at, r, Color32::WHITE);
+    painter.circle_filled(at, r - 2.5, fill);
+}
+
 fn sv_square(ui: &mut Ui, rect: Rect, hsb: &mut Hsb) -> (bool, bool) {
-    // White → hue horizontally, then transparent → black vertically.
-    let mut m = Mesh::default();
-    let hc = hue_color(ui.ctx(), hsb.h);
-    let corners = [(rect.left_top(), Color32::WHITE), (rect.right_top(), hc), (rect.right_bottom(), hc), (rect.left_bottom(), Color32::WHITE)];
-    for (p, c) in corners {
-        m.colored_vertex(p, c);
-    }
-    m.add_triangle(0, 1, 2);
-    m.add_triangle(0, 2, 3);
-    ui.painter().add(m);
-    let mut m2 = Mesh::default();
-    for (p, c) in [
-        (rect.left_top(), Color32::TRANSPARENT),
-        (rect.right_top(), Color32::TRANSPARENT),
-        (rect.right_bottom(), Color32::BLACK),
-        (rect.left_bottom(), Color32::BLACK),
-    ] {
-        m2.colored_vertex(p, c);
-    }
-    m2.add_triangle(0, 1, 2);
-    m2.add_triangle(0, 2, 3);
-    ui.painter().add(m2);
+    // Saturation across, brightness down, at the current hue: drawn as a smooth texture.
+    const N: usize = 48;
+    let ctx = ui.ctx().clone();
+    let pixels: Vec<Color32> = (0..N * N)
+        .map(|i| {
+            let (x, y) = ((i % N) as f32 / (N - 1) as f32, (i / N) as f32 / (N - 1) as f32);
+            doc_c32(&ctx, Hsb { h: hsb.h, s: x, b: 1.0 - y }.to_color())
+        })
+        .collect();
+    let half = 0.5 / N as f32;
+    let uv = Rect::from_min_max(pos2(half, half), pos2(1.0 - half, 1.0 - half));
+    widgets::texture_rect(ui.painter(), rect, CornerRadius::same(PICK_R), "cp_sv", [N, N], pixels, uv);
     let resp = ui.interact(rect, Id::new("cp_sv"), Sense::click_and_drag());
     let mut changed = false;
     if (resp.dragged() || resp.clicked() || resp.drag_started())
@@ -371,29 +372,20 @@ fn sv_square(ui: &mut Ui, rect: Rect, hsb: &mut Hsb) -> (bool, bool) {
         hsb.b = 1.0 - ((p.y - rect.min.y) / rect.height()).clamp(0.0, 1.0);
         changed = true;
     }
-    let knob = pos2(rect.min.x + hsb.s * rect.width(), rect.min.y + (1.0 - hsb.b) * rect.height());
-    ui.painter().circle_stroke(knob, 6.0, Stroke::new(2.0, Color32::WHITE));
-    ui.painter().circle_stroke(knob, 7.0, Stroke::new(1.0, Color32::from_black_alpha(80)));
+    let at = pos2(rect.min.x + hsb.s * rect.width(), rect.min.y + (1.0 - hsb.b) * rect.height());
+    knob(ui.painter(), at, 8.0, doc_c32(&ctx, hsb.to_color()));
     (changed, resp.drag_stopped() || resp.clicked())
 }
 
 fn hue_slider(ui: &mut Ui, rect: Rect, hsb: &mut Hsb) -> (bool, bool) {
-    let n = 12;
-    let mut m = Mesh::default();
-    for i in 0..=n {
-        let t = i as f32 / n as f32;
-        let x = rect.min.x + t * rect.width();
-        let c = hue_color(ui.ctx(), t * 360.0);
-        m.colored_vertex(pos2(x, rect.min.y), c);
-        m.colored_vertex(pos2(x, rect.max.y), c);
-        if i > 0 {
-            let k = (i * 2) as u32;
-            m.add_triangle(k - 2, k - 1, k);
-            m.add_triangle(k - 1, k, k + 1);
-        }
-    }
-    ui.painter().add(m);
-    slider_knob(ui, rect, hsb.h / 360.0, Id::new("cp_hue"))
+    const N: usize = 128;
+    let ctx = ui.ctx().clone();
+    let pixels: Vec<Color32> = (0..N).map(|i| hue_color(&ctx, i as f32 / (N - 1) as f32 * 360.0)).collect();
+    let half = 0.5 / N as f32;
+    let radius = CornerRadius::same((rect.height() / 2.0) as u8);
+    widgets::texture_rect(ui.painter(), rect, radius, "cp_hue", [N, 1], pixels, Rect::from_min_max(pos2(half, 0.0), pos2(1.0 - half, 1.0)));
+    let fill = hue_color(&ctx, hsb.h);
+    slider_knob(ui, rect, hsb.h / 360.0, Id::new("cp_hue"), fill)
         .map(|(t, done)| {
             hsb.h = (t * 360.0).clamp(0.0, 359.9);
             (true, done)
@@ -401,11 +393,10 @@ fn hue_slider(ui: &mut Ui, rect: Rect, hsb: &mut Hsb) -> (bool, bool) {
         .unwrap_or((false, false))
 }
 
-fn slider_knob(ui: &mut Ui, rect: Rect, t: f32, id: Id) -> Option<(f32, bool)> {
-    let resp = ui.interact(rect.expand(4.0), id, Sense::click_and_drag());
+fn slider_knob(ui: &mut Ui, rect: Rect, t: f32, id: Id, fill: Color32) -> Option<(f32, bool)> {
+    let resp = ui.interact(rect.expand(6.0), id, Sense::click_and_drag());
     let x = rect.min.x + t.clamp(0.0, 1.0) * rect.width();
-    ui.painter().circle_stroke(pos2(x, rect.center().y), rect.height() / 2.0 + 1.0, Stroke::new(2.0, Color32::WHITE));
-    ui.painter().circle_stroke(pos2(x, rect.center().y), rect.height() / 2.0 + 2.0, Stroke::new(1.0, Color32::from_black_alpha(80)));
+    knob(ui.painter(), pos2(x, rect.center().y), rect.height() / 2.0 + 3.0, fill);
     if (resp.dragged() || resp.clicked() || resp.drag_started())
         && let Some(p) = resp.interact_pointer_pos()
     {
@@ -418,21 +409,13 @@ fn slider_knob(ui: &mut Ui, rect: Rect, t: f32, id: Id) -> Option<(f32, bool)> {
 }
 
 fn alpha_slider(ui: &mut Ui, rect: Rect, color: Color) -> Option<(f32, bool)> {
-    widgets::checker(&ui.painter().with_clip_rect(rect), rect, rect.height() / 2.0);
-    let mut m = Mesh::default();
+    let radius = CornerRadius::same((rect.height() / 2.0) as u8);
+    widgets::checker_rounded(ui.painter(), rect, radius, rect.height() / 2.0);
     let opaque = doc_c32(ui.ctx(), color.with_alpha(1.0));
-    for (p, c) in [
-        (rect.left_top(), Color32::TRANSPARENT),
-        (rect.right_top(), opaque),
-        (rect.right_bottom(), opaque),
-        (rect.left_bottom(), Color32::TRANSPARENT),
-    ] {
-        m.colored_vertex(p, c);
-    }
-    m.add_triangle(0, 1, 2);
-    m.add_triangle(0, 2, 3);
-    ui.painter().add(m);
-    slider_knob(ui, rect, color.a, Id::new("cp_alpha"))
+    let clear = Color32::from_rgba_unmultiplied(opaque.r(), opaque.g(), opaque.b(), 0);
+    widgets::texture_rect(ui.painter(), rect, radius, "cp_alpha", [2, 1], vec![clear, opaque], Rect::from_min_max(pos2(0.25, 0.0), pos2(0.75, 1.0)));
+    let fill = doc_c32(ui.ctx(), color);
+    slider_knob(ui, rect, color.a, Id::new("cp_alpha"), fill)
 }
 
 pub fn show(app: &mut FigApp, ctx: &egui::Context) {
@@ -472,10 +455,13 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
             ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
             // Header.
             let (hr, _) = ui.allocate_exact_size(vec2(240.0, 40.0), Sense::hover());
-            ui.painter().text(pos2(hr.min.x + 16.0, hr.center().y), Align2::LEFT_CENTER, tr("Custom"), semibold(11.0), t.text);
-            let cr = Rect::from_center_size(pos2(hr.max.x - 20.0, hr.center().y), vec2(24.0, 24.0));
+            ui.painter().text(pos2(hr.min.x + 16.0, hr.center().y + 2.0), Align2::LEFT_CENTER, tr("Custom"), semibold(12.0), t.text);
+            let cr = Rect::from_center_size(pos2(hr.max.x - 22.0, hr.center().y + 2.0), vec2(26.0, 26.0));
             let cresp = ui.interact(cr, Id::new("cp_close"), Sense::click());
-            icons::paint(ui.painter(), cr.shrink(6.0), Icon::Close, t.icon);
+            if cresp.hovered() {
+                ui.painter().rect_filled(cr, CornerRadius::same(6), t.hover);
+            }
+            icons::paint(ui.painter(), cr.shrink(7.0), Icon::Close, t.icon);
             if cresp.clicked() {
                 close_now = true;
             }
@@ -505,8 +491,8 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
                     PaintKind::Pattern(_) => 6,
                 };
                 ui.horizontal(|ui| {
-                    ui.add_space(12.0);
-                    if let Some(i) = widgets::segmented(ui, &kinds, Some(active), 30.0) {
+                    ui.add_space(16.0);
+                    if let Some(i) = widgets::segmented(ui, &kinds, Some(active), (208.0 / kinds.len() as f32).floor()) {
                         let base = paint.preview_color();
                         let mut image_pending = false;
                         paint.kind = match i {
@@ -572,29 +558,36 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
             if let PaintKind::Gradient(g) = &paint.kind {
                 let mut g = g.clone();
                 let mut sel: usize = ui.data(|d| d.get_temp(sel_stop_id)).unwrap_or(0).min(g.stops.len().saturating_sub(1));
-                let (bar, _) = ui.allocate_exact_size(vec2(240.0, 28.0), Sense::hover());
-                let bar = bar.shrink2(vec2(16.0, 6.0));
-                widgets::checker(&ui.painter().with_clip_rect(bar), bar, 4.0);
-                let n = 24;
-                for i in 0..n {
-                    let a = i as f32 / n as f32;
-                    let b = (i + 1) as f32 / n as f32;
-                    let r = Rect::from_min_max(pos2(bar.min.x + a * bar.width(), bar.min.y), pos2(bar.min.x + b * bar.width(), bar.max.y));
-                    ui.painter().rect_filled(r, CornerRadius::ZERO, doc_c32(ui.ctx(), g.sample((a + b) / 2.0)));
-                }
+                let (bar, _) = ui.allocate_exact_size(vec2(240.0, 32.0), Sense::hover());
+                let bar = bar.shrink2(vec2(16.0, 8.0));
+                let radius = CornerRadius::same(6);
+                widgets::checker_rounded(ui.painter(), bar, radius, 4.0);
+                let n = 64;
+                let pixels: Vec<Color32> = (0..n).map(|i| doc_c32(ui.ctx(), g.sample(i as f32 / (n - 1) as f32))).collect();
+                let half = 0.5 / n as f32;
+                widgets::texture_rect(
+                    ui.painter(),
+                    bar,
+                    radius,
+                    "cp_gradient",
+                    [n, 1],
+                    pixels,
+                    Rect::from_min_max(pos2(half, 0.0), pos2(1.0 - half, 1.0)),
+                );
                 let mut changed = false;
                 let mut done = false;
                 // The bar first, so the stops on it take their own clicks.
                 let bresp = ui.interact(bar, Id::new("cp_bar"), Sense::click());
                 for (i, s) in g.stops.clone().iter().enumerate() {
                     let x = bar.min.x + s.position * bar.width();
-                    let r = Rect::from_center_size(pos2(x, bar.center().y), vec2(12.0, 18.0));
+                    let r = Rect::from_center_size(pos2(x, bar.center().y), vec2(14.0, 22.0));
                     let resp = ui.interact(r, Id::new(("cp_stopk", i)), Sense::click_and_drag());
-                    ui.painter().rect_filled(r, CornerRadius::same(3), doc_c32(ui.ctx(), s.color.with_alpha(1.0)));
+                    ui.painter().rect_filled(r.translate(vec2(0.0, 1.0)), CornerRadius::same(5), Color32::from_black_alpha(50));
+                    ui.painter().rect_filled(r, CornerRadius::same(5), doc_c32(ui.ctx(), s.color.with_alpha(1.0)));
                     ui.painter().rect_stroke(
                         r,
-                        CornerRadius::same(3),
-                        Stroke::new(if i == sel { 2.0 } else { 1.0 }, if i == sel { crate::theme::ACCENT } else { Color32::WHITE }),
+                        CornerRadius::same(5),
+                        Stroke::new(if i == sel { 2.0 } else { 1.0 }, if i == sel { crate::theme::accent() } else { Color32::WHITE }),
                         StrokeKind::Outside,
                     );
                     if resp.clicked() || resp.drag_started() {
@@ -632,20 +625,20 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
                 edit_color = g.stops.get(sel).map(|s| s.color);
                 ui.horizontal(|ui| {
                     ui.add_space(16.0);
-                    if ui.small_button(tr("Remove stop")).clicked() && g.stops.len() > 2 {
+                    if stop_button(ui, Icon::Minus, tr("Remove stop"), g.stops.len() > 2) {
                         g.stops.remove(sel);
                         ui.data_mut(|d| d.insert_temp(sel_stop_id, 0usize));
                         paint.kind = PaintKind::Gradient(g.clone());
                         write(app, &target, &paint, false);
                     }
-                    if ui.small_button(tr("Flip")).clicked() {
+                    if stop_button(ui, Icon::FlipH, tr("Flip"), true) {
                         for s in &mut g.stops {
                             s.position = 1.0 - s.position;
                         }
                         paint.kind = PaintKind::Gradient(g.clone());
                         write(app, &target, &paint, false);
                     }
-                    if ui.small_button(tr("Rotate 90°")).clicked() {
+                    if stop_button(ui, Icon::Rotate, tr("Rotate 90°"), true) {
                         let (fx, fy) = g.from;
                         let rot = |(x, y): (f64, f64)| (fx - (y - fy), fy + (x - fx));
                         g.to = rot(g.to);
@@ -757,28 +750,26 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
                     .filter(|(_, _, _, rgba)| *rgba == color.to_rgba8())
                     .map(|(h, s, b, _)| Hsb { h, s, b })
                     .unwrap_or_else(|| Hsb::from_color(color));
-                let (sq, _) = ui.allocate_exact_size(vec2(240.0, 240.0), Sense::hover());
+                let (sq, _) = ui.allocate_exact_size(vec2(240.0, 196.0), Sense::hover());
+                let sq = sq.shrink2(vec2(16.0, 0.0));
                 let (c1, d1) = sv_square(ui, sq, &mut hsb);
-                let (hr, _) = ui.allocate_exact_size(vec2(240.0, 28.0), Sense::hover());
-                let hr = Rect::from_min_max(pos2(hr.min.x + 48.0, hr.min.y + 8.0), pos2(hr.max.x - 16.0, hr.max.y - 8.0));
-                if icons::button(
-                    &mut ui.new_child(
-                        egui::UiBuilder::new().max_rect(Rect::from_min_size(pos2(hr.min.x - 36.0, hr.center().y - 12.0), vec2(24.0, 24.0))),
-                    ),
-                    Icon::Eyedropper,
-                    24.0,
-                    false,
-                    tr("Pick color (I)"),
-                )
-                .clicked()
-                {
+                // The eyedropper, the hue and opacity sliders, and the colour as picked.
+                let (row, _) = ui.allocate_exact_size(vec2(240.0, 40.0), Sense::hover());
+                let dropper = Rect::from_min_size(pos2(row.min.x + 16.0, row.center().y - 16.0), vec2(32.0, 32.0));
+                let dresp = ui.interact(dropper, Id::new("cp_dropper"), Sense::click()).tip(tr("Pick color (I)"));
+                ui.painter().rect_filled(dropper, CornerRadius::same(7), if dresp.hovered() { t.hover } else { t.field });
+                icons::paint(ui.painter(), Rect::from_center_size(dropper.center(), vec2(16.0, 16.0)), Icon::Eyedropper, t.icon);
+                if dresp.clicked() {
                     app.ui.picker = None;
                     app.run("edit.pickColor", json!({}));
                     return;
                 }
+                let preview = Rect::from_min_size(pos2(row.max.x - 16.0 - 32.0, row.center().y - 16.0), vec2(32.0, 32.0));
+                widgets::paint_swatch(ui.painter(), preview, &Paint::solid(hsb.to_color().with_alpha(color.a)));
+                let (x0, x1) = (dropper.max.x + 16.0, preview.min.x - 16.0);
+                let hr = Rect::from_min_max(pos2(x0, row.min.y + 4.0), pos2(x1, row.min.y + 4.0 + SLIDER_H));
                 let (c2, d2) = hue_slider(ui, hr, &mut hsb);
-                let (ar, _) = ui.allocate_exact_size(vec2(240.0, 20.0), Sense::hover());
-                let ar = Rect::from_min_max(pos2(ar.min.x + 48.0, ar.min.y + 2.0), pos2(ar.max.x - 16.0, ar.max.y - 6.0));
+                let ar = Rect::from_min_max(pos2(x0, row.max.y - 4.0 - SLIDER_H), pos2(x1, row.max.y - 4.0));
                 let mut new_alpha = None;
                 if let Some((a, d)) = alpha_slider(ui, ar, color) {
                     new_alpha = Some((a, d));
@@ -826,14 +817,11 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
             // Colours used on this page.
             let doc_colors = page_colors(app, ui);
             if !doc_colors.is_empty() {
-                ui.horizontal(|ui| {
-                    ui.add_space(16.0);
-                    widgets::label(ui, tr("On this page"), t.text_secondary);
-                });
+                section_label(ui, tr("On this page"), &t);
                 // Inset on both sides: `add_space` would only indent the first row of a wrap.
                 inset(ui, |ui| {
                     for c in &doc_colors {
-                        if widgets::swatch(ui, &Paint::solid(*c), 14.0).on_hover_text(c.to_hex()).clicked() {
+                        if widgets::swatch(ui, &Paint::solid(*c), 20.0).on_hover_text(c.to_hex()).clicked() {
                             set_color(app, &target, &mut paint, *c, sel_stop_id, ui);
                         }
                     }
@@ -842,13 +830,10 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
             // Recent colours.
             let recent = app.session.recent_colors.clone();
             if !recent.is_empty() {
-                ui.horizontal(|ui| {
-                    ui.add_space(16.0);
-                    widgets::label(ui, tr("Recent"), t.text_secondary);
-                });
+                section_label(ui, tr("Recent"), &t);
                 inset(ui, |ui| {
                     for c in recent.iter().take(14) {
-                        if widgets::swatch(ui, &Paint::solid(*c), 14.0).clicked() {
+                        if widgets::swatch(ui, &Paint::solid(*c), 20.0).on_hover_text(c.to_hex()).clicked() {
                             set_color(app, &target, &mut paint, *c, sel_stop_id, ui);
                         }
                     }
@@ -865,7 +850,27 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
 
 /// Swatches wrapped in rows inset 16 points from both sides of the picker.
 fn inset(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    egui::Frame::NONE.inner_margin(egui::Margin::symmetric(16, 0)).show(ui, |ui| ui.horizontal_wrapped(add));
+    egui::Frame::NONE.inner_margin(egui::Margin::symmetric(16, 0)).show(ui, |ui| {
+        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+        ui.horizontal_wrapped(add)
+    });
+}
+
+/// A gradient action: an icon in a field-like button (dimmed and inert when not `enabled`).
+fn stop_button(ui: &mut Ui, icon: Icon, tip: &str, enabled: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(widgets::FIELD_H, widgets::FIELD_H), if enabled { Sense::click() } else { Sense::hover() });
+    let resp = resp.tip(tip);
+    ui.painter().rect_filled(r, CornerRadius::same(widgets::FIELD_R), if enabled && resp.hovered() { t.hover } else { t.field });
+    let col = if enabled { t.icon } else { t.icon.gamma_multiply(0.4) };
+    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(16.0, 16.0)), icon, col);
+    enabled && resp.clicked()
+}
+
+/// A small heading above a group of swatches, with room above it.
+fn section_label(ui: &mut Ui, text: &str, t: &Tokens) {
+    let (r, _) = ui.allocate_exact_size(vec2(240.0, 22.0), Sense::hover());
+    ui.painter().text(pos2(r.min.x + 16.0, r.max.y - 4.0), Align2::LEFT_BOTTOM, text, semibold(11.0), t.text_secondary);
 }
 
 /// The colour picker's note under the fields for a colour outside sRGB.
@@ -1013,7 +1018,7 @@ fn saved_preset_row(ui: &mut Ui, name: &str) -> Option<PresetAction> {
     let del_resp = ui.interact(del, ui.id().with(("cp_preset_del", name)), Sense::click()).tip(tr("Delete preset"));
     let hot = resp.hovered() || del_resp.hovered();
     if hot {
-        ui.painter().rect_filled(r, CornerRadius::same(5), crate::theme::ACCENT);
+        ui.painter().rect_filled(r, CornerRadius::same(5), crate::theme::accent());
     }
     let col = if hot { Color32::WHITE } else { t.text };
     ui.painter().text(pos2(r.min.x + 8.0, r.center().y), Align2::LEFT_CENTER, name, regular(11.5), col);

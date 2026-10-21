@@ -45,7 +45,7 @@ fn width_point(app: &mut FigApp, ui: &mut Ui, doc: &Document, ve: &VectorEdit) {
     let col = widgets::col_width(ui.available_width());
     let round = |v: f64| (v * 100.0).round() / 100.0;
     widgets::sublabels(ui, tr("Position"), Some(tr("Width")));
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let e = widgets::number_field(ui, Id::new("wpt_t"), Lead::None, Some(round(p.t * 100.0)), "%", col, 1.0);
         point_field(app, "vector.edit.widthPoint", e, |v| json!({"index": i, "t": v / 100.0}));
         let e = widgets::number_field(ui, Id::new("wpt_w"), Lead::Icon(Icon::StrokeIcon, tr("Width")), Some(round(p.scale * weight)), "", col, 1.0);
@@ -54,7 +54,7 @@ fn width_point(app: &mut FigApp, ui: &mut Ui, doc: &Document, ve: &VectorEdit) {
     // Each side's reach from the centre line (Alt-drag a handle on the canvas for one side).
     let (l, r) = p.sides();
     widgets::sublabels(ui, tr("Left side"), Some(tr("Right side")));
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         for (side, scale, name) in [("left", l, tr("Left side width")), ("right", r, tr("Right side width"))] {
             let e = widgets::number_field(
                 ui,
@@ -88,7 +88,7 @@ pub fn points(app: &mut FigApp, ui: &mut Ui, doc: &Document, ve: &VectorEdit) {
     let pos = vectoredit::selection_position(doc, ve);
     let round = |v: f64| (v * 100.0).round() / 100.0;
     widgets::sublabels(ui, tr("Position"), None);
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let e = widgets::number_field(ui, Id::new("vpt_x"), Lead::Text("X"), pos.map(|p| round(p.x)), "", col, 1.0);
         point_field(app, "vector.edit.position", e, |v| json!({"x": v}));
         let e = widgets::number_field(ui, Id::new("vpt_y"), Lead::Text("Y"), pos.map(|p| round(p.y)), "", col, 1.0);
@@ -96,7 +96,7 @@ pub fn points(app: &mut FigApp, ui: &mut Ui, doc: &Document, ve: &VectorEdit) {
     });
     if let Some(b) = vectoredit::transform::point_box(doc, ve).filter(|b| b.points.len() > 1) {
         widgets::sublabels(ui, tr("Dimensions"), None);
-        row(ui, 32.0, |ui| {
+        row(ui, crate::widgets::FIELD_ROW, |ui| {
             let e = widgets::number_field(ui, Id::new("vpt_w"), Lead::Text("W"), Some(round(b.width)), "", col, 1.0);
             point_field(app, "vector.edit.resize", e, |v| json!({"width": v.max(0.0)}));
             let e = widgets::number_field(ui, Id::new("vpt_h"), Lead::Text("H"), Some(round(b.height)), "", col, 1.0);
@@ -110,13 +110,13 @@ pub fn points(app: &mut FigApp, ui: &mut Ui, doc: &Document, ve: &VectorEdit) {
     let cap = same(pts.iter().map(|v| vertex(v).map(|x| x.cap))).flatten();
     let join = same(pts.iter().map(|v| vertex(v).map(|x| x.join))).flatten();
     widgets::sublabels(ui, tr("Corner radius"), None);
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let e =
             widgets::number_field(ui, Id::new("vpt_radius"), Lead::Icon(Icon::CornerRadius, tr("Corner radius")), radius.map(round), "", col, 1.0);
         point_field(app, "vector.edit.cornerRadius", e, |v| json!({"radius": v.max(0.0)}));
     });
     widgets::sublabels(ui, tr("Mirroring"), None);
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let label = |m: HandleMirroring| match m {
             HandleMirroring::None => tr("No mirroring"),
             HandleMirroring::Angle => tr("Mirror angle"),
@@ -139,7 +139,7 @@ pub fn points(app: &mut FigApp, ui: &mut Ui, doc: &Document, ve: &VectorEdit) {
         Some(Some(l)) => l,
     };
     widgets::sublabels(ui, tr("End point"), Some(tr("Join|stroke")));
-    row(ui, 32.0, |ui| {
+    row(ui, crate::widgets::FIELD_ROW, |ui| {
         let resp = widgets::dropdown(ui, own(cap.map(|c| c.map(|c| tr(c.label())))), col, None);
         menu_popup(&resp).show(|ui| {
             if menu_item(ui, tr("Same as layer"), "") {

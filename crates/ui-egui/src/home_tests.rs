@@ -761,3 +761,12 @@ fn dropping_an_unsupported_file_on_the_home_screen_opens_nothing() {
     assert!(u.app.ui.home);
     assert_eq!(u.app.ui.toast.as_ref().map(|t| t.0.as_str()), Some("Drop a .figcraft, .fig, .json, .svg or image file."));
 }
+
+#[test]
+fn a_file_the_main_menu_makes_opens_over_home() {
+    let mut u = Ui::new(Session::new());
+    u.app.ui.home = true;
+    crate::menus::invoke(&mut u.app, "file.new");
+    assert_eq!(u.app.session.docs.len(), 2);
+    assert!(!u.app.ui.home, "the new file shows instead of Home");
+}

@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::a11y::{self, Region, RowInfo, Tip};
 use crate::i18n::{tr, trf, trn};
 use crate::icons::{self, Icon};
-use crate::theme::{ACCENT, COMPONENT, Tokens, regular, semibold};
+use crate::theme::{Tokens, accent, component, regular, semibold};
 use crate::{FigApp, LeftTab};
 
 pub const ROW: f32 = 32.0;
@@ -74,6 +74,9 @@ pub fn node_icon(doc: &Document, id: NodeId) -> Icon {
     }
 }
 
+/// How far the panel's controls, cards and highlighted rows sit from its edges.
+const INSET: f32 = crate::widgets::INSET;
+
 pub fn left_panel(app: &mut FigApp, ui: &mut Ui) {
     if app.ui.versions.open {
         crate::versions::panel(app, ui);
@@ -94,9 +97,9 @@ pub fn left_panel(app: &mut FigApp, ui: &mut Ui) {
 fn tabs_row(app: &mut FigApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
-    let (row, _) = ui.allocate_exact_size(vec2(w, 48.0), Sense::hover());
-    let seg = Rect::from_min_max(pos2(row.min.x + 10.0, row.min.y + 8.0), pos2(row.max.x - 10.0, row.min.y + 42.0));
-    ui.painter().rect_filled(seg, CornerRadius::same(11), t.field);
+    let (row, _) = ui.allocate_exact_size(vec2(w, 42.0), Sense::hover());
+    let seg = Rect::from_min_max(pos2(row.min.x + INSET, row.min.y + 4.0), pos2(row.max.x - INSET, row.min.y + 38.0));
+    ui.painter().rect_filled(seg, CornerRadius::same(8), t.field);
     let tabs =
         [(LeftTab::File, Icon::Layers, tr("Layers")), (LeftTab::Assets, Icon::Assets, tr("Assets")), (LeftTab::Pages, Icon::Page, tr("Pages"))];
     let cw = (seg.width() - 6.0) / tabs.len() as f32;
@@ -106,10 +109,10 @@ fn tabs_row(app: &mut FigApp, ui: &mut Ui) {
         let active = app.ui.left_tab == tab;
         a11y::tab(&resp, label, active);
         if active {
-            ui.painter().rect_filled(r.translate(vec2(0.0, 1.0)), CornerRadius::same(9), Color32::from_black_alpha(24));
-            ui.painter().rect_filled(r, CornerRadius::same(9), t.panel);
+            ui.painter().rect_filled(r.translate(vec2(0.0, 1.0)), CornerRadius::same(7), Color32::from_black_alpha(24));
+            ui.painter().rect_filled(r, CornerRadius::same(7), t.panel);
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(9), t.hover);
+            ui.painter().rect_filled(r, CornerRadius::same(7), t.hover);
         }
         let col = if active { t.text } else { t.text_secondary };
         let galley = ui.painter().layout_no_wrap(label.to_string(), semibold(11.5), col);
@@ -135,20 +138,11 @@ fn pages(app: &mut FigApp, ui: &mut Ui, full: bool) {
     let w = ui.available_width();
     let (hr, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
     if full {
-        ui.painter().text(pos2(hr.min.x + 16.0, hr.center().y), Align2::LEFT_CENTER, tr("Pages"), semibold(11.0), t.text);
+        ui.painter().text(pos2(hr.min.x + crate::widgets::PAD, hr.center().y), Align2::LEFT_CENTER, tr("Pages"), semibold(11.0), t.text);
     } else {
-        page_picker(app, ui, Rect::from_min_max(pos2(hr.min.x + 10.0, hr.min.y + 4.0), pos2(hr.max.x - 66.0, hr.max.y - 4.0)), &t);
+        page_picker(app, ui, Rect::from_min_max(pos2(hr.min.x + INSET, hr.min.y + 4.0), pos2(hr.max.x - INSET - 30.0, hr.max.y - 4.0)), &t);
     }
-    let sr = Rect::from_center_size(pos2(hr.max.x - 50.0, hr.center().y), vec2(24.0, 24.0));
-    let sresp = ui.interact(sr, ui.id().with("lsearch"), Sense::click()).tip(crate::shortcuts::tip(tr("Find"), "edit.findReplace"));
-    if sresp.hovered() {
-        ui.painter().rect_filled(sr, CornerRadius::same(5), t.hover);
-    }
-    icons::paint(ui.painter(), sr.shrink(5.0), Icon::Search, t.icon);
-    if sresp.clicked() {
-        app.ui.find = Some((String::new(), String::new()));
-    }
-    let ar = Rect::from_center_size(pos2(hr.max.x - 22.0, hr.center().y), vec2(24.0, 24.0));
+    let ar = Rect::from_center_size(pos2(hr.max.x - INSET - 12.0, hr.center().y), vec2(24.0, 24.0));
     let aresp = ui.interact(ar, ui.id().with("addpage"), Sense::click()).tip(tr("Add new page"));
     if aresp.hovered() {
         ui.painter().rect_filled(ar, CornerRadius::same(5), t.hover);
@@ -180,7 +174,7 @@ fn pages(app: &mut FigApp, ui: &mut Ui, full: bool) {
             let (r, resp) = ui.allocate_exact_size(vec2(w, 32.0), Sense::click_and_drag());
             reorder.row_by(&resp, k, r, || if divider { tr("Divider").to_string() } else { name.clone() });
             a11y::list_item(&resp, if divider { tr("Divider") } else { &name }, id == cur);
-            let r = r.shrink2(vec2(8.0, 0.0));
+            let r = r.shrink2(vec2(INSET, 0.0));
             a11y::ring_around(ui, r, &resp);
             let renaming = app.ui.rename_page.as_ref().is_some_and(|(i, _)| *i == id);
             if divider && !renaming {
@@ -195,7 +189,7 @@ fn pages(app: &mut FigApp, ui: &mut Ui, full: bool) {
                 // The gap between rows counts too.
                 && pointer.is_some_and(|p| resp.interact_rect.expand2(vec2(0.0, 3.0)).contains(p))
             {
-                ui.painter().rect_stroke(r, CornerRadius::same(5), Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(r, CornerRadius::same(5), Stroke::new(2.0, accent()), egui::StrokeKind::Inside);
                 if ui.input(|i| i.pointer.any_released()) {
                     move_to = Some((id, name.clone()));
                 }
@@ -278,8 +272,8 @@ fn page_picker(app: &mut FigApp, ui: &mut Ui, r: Rect, t: &Tokens) {
     let place = listed.iter().position(|p| *p == ds.page).map(|i| format!("{} / {}", i + 1, listed.len()));
     let resp = ui.interact(r, ui.id().with("pages_toggle"), Sense::click()).tip(tr("Pages"));
     a11y::toggle(&resp, tr("Pages"), app.ui.pages_open);
-    ui.painter().rect_filled(r, CornerRadius::same(10), if resp.hovered() { t.hover } else { Color32::TRANSPARENT });
-    ui.painter().rect_stroke(r, CornerRadius::same(10), Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+    ui.painter().rect_filled(r, CornerRadius::same(8), if resp.hovered() { t.hover } else { Color32::TRANSPARENT });
+    ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
     ui.painter().circle_filled(pos2(r.min.x + 14.0, r.center().y), 4.0, t.accent);
     let chevron = Rect::from_center_size(pos2(r.max.x - 14.0, r.center().y), vec2(10.0, 10.0));
     icons::paint(ui.painter(), chevron, if app.ui.pages_open { Icon::Chevron } else { Icon::ChevronRight }, t.icon_secondary);
@@ -585,7 +579,7 @@ fn row_x0(rr: Rect, depth: usize) -> f32 {
 /// The name field of the row being renamed (row rect `r`): the new name once committed. The
 /// rename ends when the field lets go of the keyboard.
 fn rename_field(app: &mut FigApp, ui: &mut Ui, id: NodeId, depth: usize, name: &str, r: Rect) -> Option<String> {
-    let rr = r.shrink2(vec2(8.0, 0.0));
+    let rr = r.shrink2(vec2(INSET, 0.0));
     let rect = Rect::from_min_max(pos2(row_x0(rr, depth) + 32.0, r.min.y + 4.0), pos2(rr.max.x - 4.0, r.max.y - 4.0));
     let start = app.ui.rename.is_some_and(|x| x.start);
     let (out, open) = crate::widgets::rename_field(ui, rename_id(id), name, rect, regular(11.0), start);
@@ -638,14 +632,20 @@ fn search_field(app: &mut FigApp, ui: &mut Ui, t: &Tokens, w: f32, id: Id) {
 fn layers(app: &mut FigApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
-    let (hr, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
-    ui.painter().text(pos2(hr.min.x + 16.0, hr.center().y), Align2::LEFT_CENTER, tr("Layers"), semibold(11.0), t.text);
-    let sr = Rect::from_center_size(pos2(hr.max.x - 22.0, hr.center().y), vec2(24.0, 24.0));
+    let (hr, _) = ui.allocate_exact_size(vec2(w, 36.0), Sense::hover());
+    ui.painter().text(
+        pos2(hr.min.x + crate::widgets::PAD, hr.center().y),
+        Align2::LEFT_CENTER,
+        tr("Layers").to_uppercase(),
+        semibold(10.0),
+        t.text_secondary,
+    );
+    let sr = Rect::from_center_size(pos2(hr.max.x - INSET - 12.0, hr.center().y), vec2(24.0, 24.0));
     let sresp = ui.interact(sr, ui.id().with("layer_search_btn"), Sense::click()).tip(tr("Search layers"));
     if sresp.hovered() || app.ui.layer_search {
         ui.painter().rect_filled(sr, CornerRadius::same(5), t.hover);
     }
-    icons::paint(ui.painter(), sr.shrink(5.0), Icon::Search, t.icon);
+    icons::paint(ui.painter(), sr.shrink(5.0), Icon::Search, t.icon_secondary);
     let search_id = Id::new("layer_search_field");
     if sresp.clicked() {
         app.ui.layer_search = !app.ui.layer_search;
@@ -728,11 +728,20 @@ fn layers(app: &mut FigApp, ui: &mut Ui) {
         }
         if rows.is_empty() {
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.add_space(16.0);
-                let hint = if filter.is_empty() { tr("Add a frame (F) or a shape (R) to get started") } else { tr("No matching layers") };
-                ui.add(egui::Label::new(egui::RichText::new(hint).font(regular(11.0)).color(t.text_secondary)).wrap());
-            });
+            let (icon, hint) = if filter.is_empty() {
+                (Icon::Layers, tr("Add a frame (F) or a shape (R) to get started"))
+            } else {
+                (Icon::Search, tr("No matching layers"))
+            };
+            let w = ui.available_width();
+            let galley = ui.painter().layout(hint.to_string(), regular(11.0), t.text_secondary, (w - 56.0).max(40.0));
+            let (r, _) = ui.allocate_exact_size(vec2(w, galley.size().y + 64.0), Sense::hover());
+            let card = r.shrink2(vec2(INSET, 0.0));
+            ui.painter().rect(card, CornerRadius::same(9), t.card, egui::Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+            let tile = Rect::from_center_size(pos2(card.center().x, card.min.y + 24.0), vec2(30.0, 30.0));
+            crate::widgets::icon_tile(ui.painter(), tile, icon, t.accent, t.accent_text, 16.0);
+            let at = pos2(card.center().x - galley.size().x / 2.0, tile.max.y + 10.0);
+            ui.painter().galley(at, galley, t.text_secondary);
         }
         // Dragging near the list's top or bottom edge scrolls it, faster closer to the edge.
         if dragging.is_some()
@@ -778,19 +787,22 @@ fn layers(app: &mut FigApp, ui: &mut Ui) {
             a11y::tree_item(&resp, if n.name.is_empty() { tr(n.kind.label()) } else { &n.name }, &info);
             let in_selected = !selected && doc.ancestors(row.id).iter().any(|a| sel.contains(a));
             let is_comp = matches!(n.kind, NodeKind::Component { .. } | NodeKind::ComponentSet { .. } | NodeKind::Instance { .. });
-            let rr = r.shrink2(vec2(8.0, 0.0));
+            let rr = r.shrink2(vec2(INSET, 0.0));
             a11y::ring_around(ui, rr, &resp);
             // Over the row, its eye and padlock included (they sit on top of it).
             let over = resp.contains_pointer();
             if selected {
-                ui.painter().rect_filled(rr, CornerRadius::same(5), if is_comp { t.component_row } else { t.selected_row });
+                ui.painter().rect_filled(rr, CornerRadius::same(7), if is_comp { t.component_row } else { t.selected_row });
+                // The selection's mark at the row's left edge.
+                let bar = Rect::from_min_size(pos2(rr.min.x, rr.center().y - 8.0), vec2(3.0, 16.0));
+                ui.painter().rect_filled(bar, CornerRadius::same(2), if is_comp { component() } else { accent() });
             } else if in_selected {
                 ui.painter().rect_filled(rr, CornerRadius::ZERO, t.selected_row_child);
             } else if over || hover == Some(row.id) {
                 ui.painter().rect_stroke(
                     rr,
-                    CornerRadius::same(5),
-                    Stroke::new(1.0, if is_comp { COMPONENT } else { ACCENT }),
+                    CornerRadius::same(7),
+                    Stroke::new(1.0, if is_comp { component() } else { accent() }),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -816,13 +828,15 @@ fn layers(app: &mut FigApp, ui: &mut Ui) {
             let icon = node_icon(&doc, row.id);
             let shown = n.visible && !row.dimmed;
             let icon_col = if is_comp || icon == Icon::Slot {
-                COMPONENT.gamma_multiply(if shown { 1.0 } else { 0.5 })
+                component().gamma_multiply(if shown { 1.0 } else { 0.5 })
+            } else if shown && selected {
+                t.accent_text
             } else if shown {
-                t.icon
+                t.icon_secondary
             } else {
                 t.text_tertiary
             };
-            icons::paint(ui.painter(), Rect::from_center_size(pos2(x0 + 22.0, r.center().y), vec2(14.0, 14.0)), icon, icon_col);
+            icons::paint(ui.painter(), Rect::from_center_size(pos2(x0 + 22.0, r.center().y), vec2(16.0, 16.0)), icon, icon_col);
             let name_x = x0 + 36.0;
             if app.ui.rename.is_some_and(|rn| rn.id == row.id) {
                 if let Some(new) = rename_field(app, ui, row.id, row.depth, &n.name, r) {
@@ -830,7 +844,7 @@ fn layers(app: &mut FigApp, ui: &mut Ui) {
                 }
             } else {
                 let col = if is_comp {
-                    COMPONENT.gamma_multiply(if shown { 1.0 } else { 0.5 })
+                    component().gamma_multiply(if shown { 1.0 } else { 0.5 })
                 } else if shown {
                     t.text
                 } else {
@@ -838,10 +852,11 @@ fn layers(app: &mut FigApp, ui: &mut Ui) {
                 };
                 let font = if doc.node(n.parent.unwrap_or(page)).is_some_and(|p| p.is_page())
                     && (n.kind.is_frame_like() || matches!(n.kind, NodeKind::Section { .. }))
+                    || selected
                 {
-                    semibold(11.0)
+                    semibold(12.0)
                 } else {
-                    regular(11.0)
+                    regular(12.0)
                 };
                 let name = if n.name.is_empty() { tr(n.kind.label()).to_string() } else { n.name.clone() };
                 // Room left of the lock and eye buttons.
@@ -928,7 +943,7 @@ fn layers(app: &mut FigApp, ui: &mut Ui) {
                     _ => r.center().y,
                 };
                 if zone == 0 {
-                    ui.painter().rect_stroke(rr, CornerRadius::same(5), Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+                    ui.painter().rect_stroke(rr, CornerRadius::same(5), Stroke::new(2.0, accent()), egui::StrokeKind::Inside);
                     // Holding over a collapsed group or frame opens it, to drop deeper inside.
                     if row.has_kids && !app.ui.expanded.contains(&row.id) {
                         let hold_id = Id::new("layer_drag_hold");

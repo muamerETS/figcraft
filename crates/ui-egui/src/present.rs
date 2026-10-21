@@ -35,7 +35,7 @@ use crate::FigApp;
 use crate::a11y::Tip;
 use crate::i18n::{tr, tr_noop};
 use crate::icons::{self, Icon};
-use crate::theme::{ACCENT, Tokens, regular, semibold};
+use crate::theme::{Tokens, accent, regular, semibold};
 use crate::widgets;
 
 /// A mouse trigger waiting out its delay: interaction `k` of `node`, hit at `rect` while `root`
@@ -1623,11 +1623,12 @@ struct Chrome {
     keys: bool,
 }
 
-const FULL: Chrome = Chrome { pane: false, bar_h: 40.0, pad: 32.0, round: 0, keys: true };
+/// Full window: the bar's controls are in the window's top bar ([`full_bar`]).
+const FULL: Chrome = Chrome { pane: false, bar_h: 0.0, pad: 32.0, round: 0, keys: true };
 
 /// What the player's top bar asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BarAction {
+pub(crate) enum BarAction {
     Close,
     Restart,
     /// Present full-window (from the pane).
@@ -1651,7 +1652,13 @@ pub fn show(app: &mut FigApp, ui: &mut Ui) {
         pres.sync(&ds.doc, now);
     }
     poll_pads(app, &mut pres, &ctx);
-    let mut action = None;
+    // What the window's top bar asked for ([`full_bar`]).
+    let mut action = app.ui.present_action.take();
+    if action == Some(BarAction::Restart) {
+        pres.restart(pres.start, now);
+    }
+    // The stage shows around the floating Inspect panel too.
+    ui.painter().rect_filled(ui.available_rect_before_wrap(), CornerRadius::ZERO, stage_color(&ctx, &pres));
     // Typing a reply to a comment keeps the keys from the prototype; Shift+C shows the comments.
     let typing = ctx.egui_wants_keyboard_input();
     if !typing && ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::C)) {
@@ -1659,10 +1666,19 @@ pub fn show(app: &mut FigApp, ui: &mut Ui) {
     }
     if pres.view.inspect {
         let t = Tokens::get(&ctx);
+        let gap = crate::ISLAND_GAP;
         egui::Panel::right("present_inspect")
             .resizable(false)
-            .exact_size(INSPECT_W)
-            .frame(egui::Frame::NONE.fill(t.panel).stroke(Stroke::new(1.0, t.border)))
+            .show_separator_line(false)
+            .exact_size(INSPECT_W + f32::from(gap))
+            .frame(
+                egui::Frame::NONE
+                    .fill(t.panel)
+                    .stroke(Stroke::new(1.0, t.border))
+                    .corner_radius(CornerRadius::same(crate::ISLAND_R))
+                    .outer_margin(egui::Margin { left: 0, right: gap, top: gap, bottom: gap })
+                    .inner_margin(egui::Margin { left: 0, right: 0, top: 4, bottom: 8 }),
+            )
             .show(ui, |ui| inspect_panel(app, ui, &pres));
     }
     egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
@@ -1731,71 +1747,81 @@ fn navigation_bar(p: &mut Presenter, ctx: &egui::Context, now: f64) -> Option<St
         egui::Frame::NONE
             .fill(t.panel)
             .stroke(Stroke::new(1.0, t.border))
-            .corner_radius(CornerRadius::same(9))
-            .inner_margin(egui::Margin::symmetric(8, 5))
+            .corner_radius(CornerRadius::same(10))
+            .shadow(egui::Shadow {
+                offset: [0, 3],
+                blur: 14,
+                spread: 0,
+                color: if t.dark { Color32::from_black_alpha(70) } else { Color32::from_black_alpha(20) },
+            })
+            .inner_margin(egui::Margin::same(6))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
                     let prev = index.and_then(|i| i.checked_sub(1)).and_then(|i| frames.get(i)).copied();
                     let next = index.and_then(|i| frames.get(i + 1)).copied();
-                    let previous =
-                        ui.add_enabled(prev.is_some(), egui::Button::new("").min_size(vec2(26.0, 24.0))).on_hover_text(tr("Previous frame"));
-                    icons::paint(
-                        ui.painter(),
-                        Rect::from_center_size(previous.rect.center(), vec2(21.0, 21.0)),
-                        Icon::ChevronLeft,
-                        if prev.is_some() { t.icon } else { t.icon_secondary },
-                    );
-                    if previous.clicked() {
+                    let step = |ui: &mut Ui, icon: Icon, tip: &str, on: bool| {
+                        let (r, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), if on { Sense::click() } else { Sense::hover() });
+                        let resp = resp.tip(tip);
+                        if on && resp.hovered() {
+                            ui.painter().rect_filled(r, CornerRadius::same(7), t.hover);
+                        }
+                        icons::paint(
+                            ui.painter(),
+                            Rect::from_center_size(r.center(), vec2(16.0, 16.0)),
+                            icon,
+                            if on { t.icon } else { t.text_tertiary },
+                        );
+                        on && resp.clicked()
+                    };
+                    if step(ui, Icon::ChevronLeft, tr("Previous frame"), prev.is_some()) {
                         navigate = prev;
                     }
-                    ui.label(egui::RichText::new(format!("{} / {}", index.map_or(0, |i| i + 1), frames.len())).color(t.text));
-                    let following = ui.add_enabled(next.is_some(), egui::Button::new("").min_size(vec2(26.0, 24.0))).on_hover_text(tr("Next frame"));
-                    icons::paint(
-                        ui.painter(),
-                        Rect::from_center_size(following.rect.center(), vec2(21.0, 21.0)),
-                        Icon::ChevronRight,
-                        if next.is_some() { t.icon } else { t.icon_secondary },
-                    );
-                    if following.clicked() {
+                    let count = format!("{} / {}", index.map_or(0, |i| i + 1), frames.len());
+                    let g = ui.painter().layout_no_wrap(count, semibold(12.0), t.text);
+                    let (cr, _) = ui.allocate_exact_size(vec2(g.size().x + 12.0, 30.0), Sense::hover());
+                    ui.painter().galley(cr.center() - g.size() / 2.0, g, t.text);
+                    if step(ui, Icon::ChevronRight, tr("Next frame"), next.is_some()) {
                         navigate = next;
                     }
-                    ui.separator();
+                    let (dr, _) = ui.allocate_exact_size(vec2(9.0, 30.0), Sense::hover());
+                    ui.painter().line_segment([pos2(dr.center().x, dr.min.y + 6.0), pos2(dr.center().x, dr.max.y - 6.0)], Stroke::new(1.0, t.border));
                     let model = if settings.device.is_empty() || settings.device == "None" { tr("No device") } else { &settings.device };
-                    let device_menu = ui.menu_button(format!("{model}    "), |ui| {
-                        navigation_menu(ui, |ui| {
-                            egui::ScrollArea::vertical().max_height(410.0).show(ui, |ui| {
-                                if ui.selectable_label(settings.device.is_empty() || settings.device == "None", tr("No device")).clicked() {
-                                    device_choice = Some("None".to_owned());
-                                    ui.close();
-                                }
-                                ui.separator();
-                                for device in PrototypeSettings::DEVICES {
-                                    let label = format!("{}  {}×{}", device.name, device.width as u32, device.height as u32);
-                                    if ui.selectable_label(settings.device == device.name, label).clicked() {
-                                        device_choice = Some(device.name.to_owned());
-                                        ui.close();
-                                    }
-                                }
-                                ui.separator();
-                                if ui.selectable_label(settings.device == PrototypeSettings::CUSTOM_DEVICE, tr("Custom size")).clicked() {
-                                    device_choice = Some(PrototypeSettings::CUSTOM_DEVICE.to_owned());
-                                    ui.close();
-                                }
-                            });
-                        });
-                    });
-                    paint_menu_chevron(ui.painter(), device_menu.response.rect, t.icon_secondary);
-                    let scale_menu = ui.menu_button(format!("{}    ", tr(p.view.scale.label(settings.device().is_some()))), |ui| {
-                        navigation_menu(ui, |ui| {
-                            for scale in PresentScale::options(settings.device().is_some()) {
-                                if ui.selectable_label(p.view.scale == *scale, tr(scale.label(settings.device().is_some()))).clicked() {
-                                    p.set_scale(*scale);
+                    let fit =
+                        |ui: &Ui, s: &str| (ui.painter().layout_no_wrap(s.to_string(), semibold(11.5), t.text).size().x + 50.0).clamp(90.0, 200.0);
+                    let device_menu = widgets::dropdown(ui, model, fit(ui, model), Some(Icon::Preview));
+                    crate::right::menu_popup(&device_menu).width(240.0).show(|ui| {
+                        egui::ScrollArea::vertical().max_height(410.0).show(ui, |ui| {
+                            if crate::right::menu_check(ui, settings.device.is_empty() || settings.device == "None", tr("No device"), "") {
+                                device_choice = Some("None".to_owned());
+                                ui.close();
+                            }
+                            ui.separator();
+                            for device in PrototypeSettings::DEVICES {
+                                let label = format!("{}  {}×{}", device.name, device.width as u32, device.height as u32);
+                                if crate::right::menu_check(ui, settings.device == device.name, &label, "") {
+                                    device_choice = Some(device.name.to_owned());
                                     ui.close();
                                 }
                             }
+                            ui.separator();
+                            if crate::right::menu_check(ui, settings.device == PrototypeSettings::CUSTOM_DEVICE, tr("Custom size"), "") {
+                                device_choice = Some(PrototypeSettings::CUSTOM_DEVICE.to_owned());
+                                ui.close();
+                            }
                         });
                     });
-                    paint_menu_chevron(ui.painter(), scale_menu.response.rect, t.icon_secondary);
+                    let on_device = settings.device().is_some();
+                    let scale_label = tr(p.view.scale.label(on_device));
+                    let scale_menu = widgets::dropdown(ui, scale_label, fit(ui, scale_label), None);
+                    crate::right::menu_popup(&scale_menu).width(200.0).show(|ui| {
+                        for scale in PresentScale::options(on_device) {
+                            if crate::right::menu_check(ui, p.view.scale == *scale, tr(scale.label(on_device)), "") {
+                                p.set_scale(*scale);
+                                ui.close();
+                            }
+                        }
+                    });
                 });
             });
     });
@@ -1808,11 +1834,6 @@ fn navigation_bar(p: &mut Presenter, ctx: &egui::Context, now: f64) -> Option<St
 fn paint_menu_chevron(painter: &egui::Painter, button: Rect, color: Color32) {
     let icon = Rect::from_center_size(pos2(button.right() - 11.0, button.center().y), vec2(17.0, 17.0));
     icons::paint(painter, icon, Icon::Chevron, color);
-}
-
-fn navigation_menu(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    ui.set_min_width(212.0);
-    add(ui);
 }
 
 /// How often the player polls the controllers while its prototype has gamepad triggers (seconds).
@@ -2000,7 +2021,7 @@ fn device_body(p: &egui::Painter, device: &str, s: Rect, landscape: bool, color:
         }
         "Desktop" => {
             let screen = s.expand(b);
-            p.rect_filled(screen, CornerRadius::same(8), body);
+            p.rect_filled(screen, CornerRadius::same(6), body);
             p.rect_filled(screen.shrink(band), radius(8.0 - band), GLASS);
             let neck =
                 Rect::from_min_max(pos2(screen.center().x - w * 0.06, screen.max.y), pos2(screen.center().x + w * 0.06, screen.max.y + w * 0.08));
@@ -2091,7 +2112,7 @@ fn player(p: &mut Presenter, ui: &mut Ui, rect: Rect, now: f64, chrome: Chrome) 
     let bg = crate::theme::doc_c32(ui.ctx(), p.doc.as_ref().map(|d| page_settings(d, p.current)).unwrap_or_default().background);
     let r = chrome.round;
     ui.painter().rect_filled(area, CornerRadius { nw: 0, ne: 0, sw: r, se: r }, bg);
-    let action = top_bar(p, ui, bar, now, chrome);
+    let action = if chrome.bar_h > 0.0 { top_bar(p, ui, bar, now, chrome) } else { None };
     if action == Some(BarAction::Restart) {
         p.restart(p.start, now);
     }
@@ -2167,99 +2188,69 @@ fn inspect_hover(p: &mut Presenter, painter: &egui::Painter, ctx: &egui::Context
     if let Some(id) = p.inspected.filter(|id| *id == root || l.disp.is_ancestor(root, *id))
         && let Some(b) = l.disp.world_bounds(id)
     {
-        painter.with_clip_rect(clip).rect_stroke(place.rect(b), CornerRadius::ZERO, Stroke::new(1.5, ACCENT), StrokeKind::Outside);
+        painter.with_clip_rect(clip).rect_stroke(place.rect(b), CornerRadius::ZERO, Stroke::new(1.5, accent()), StrokeKind::Outside);
     }
 }
 
-/// The bar above the prototype: the flow picker and the frame's name on the left, the buttons on
-/// the right (text on the dark full-window bar, icons in the pane, which follows the theme).
+/// The bar above the prototype in the preview pane: the flow picker and the frame's name on the
+/// left, icon buttons on the right.
 fn top_bar(p: &mut Presenter, ui: &mut Ui, bar: Rect, now: f64, chrome: Chrome) -> Option<BarAction> {
     let t = Tokens::get(ui.ctx());
-    let (fill, text, dim, hover) = (t.panel, t.text, t.text_secondary, t.hover);
     let r = chrome.round;
-    ui.painter().rect_filled(bar, CornerRadius { nw: r, ne: r, sw: 0, se: 0 }, fill);
-    if chrome.pane {
-        ui.painter().line_segment([bar.left_bottom(), bar.right_bottom()], Stroke::new(1.0, t.border));
+    ui.painter().rect_filled(bar, CornerRadius { nw: r, ne: r, sw: 0, se: 0 }, t.panel);
+    ui.painter().line_segment([bar.left_bottom(), bar.right_bottom()], Stroke::new(1.0, t.border));
+    p.doc.as_ref()?;
+    let mut action = None;
+    let buttons: [(BarAction, &str, Icon); 3] = [
+        (BarAction::Close, tr_noop("Close preview"), Icon::Close),
+        (BarAction::Present, tr_noop("Present"), Icon::Play),
+        (BarAction::Restart, tr_noop("Restart"), Icon::Reset),
+    ];
+    let mut x = bar.max.x - 6.0;
+    for (act, label, icon) in buttons {
+        let br = Rect::from_min_size(pos2(x - 24.0, bar.center().y - 12.0), vec2(24.0, 24.0));
+        x = br.min.x - 2.0;
+        let resp = ui.interact(br, ui.id().with(("pbar", label)), Sense::click()).tip(tr(label));
+        if resp.hovered() {
+            ui.painter().rect_filled(br, CornerRadius::same(6), t.hover);
+        }
+        icons::paint(ui.painter(), br.shrink(5.0), icon, t.icon);
+        if resp.clicked() {
+            action = Some(act);
+        }
     }
+    crumbs(p, ui, Rect::from_min_max(bar.min, pos2(x, bar.max.y)), bar.min.x + 8.0, bar.center().y, false, now);
+    action
+}
+
+/// The flow playing (a picker of the page's flows) and the presented frame's name from `lx` in
+/// `clip`, after the frame's thumbnail with `thumb`.
+fn crumbs(p: &mut Presenter, ui: &mut Ui, clip: Rect, mut lx: f32, cy: f32, thumb: bool, now: f64) {
+    let t = Tokens::get(ui.ctx());
     let source_key = p.source.as_ref().map_or(0, |s| Arc::as_ptr(s) as usize);
-    if !chrome.pane && p.bar_thumb.as_ref().is_none_or(|(id, source, _)| *id != p.current || *source != source_key) {
+    if thumb && p.bar_thumb.as_ref().is_none_or(|(id, source, _)| *id != p.current || *source != source_key) {
         p.bar_thumb =
             p.source.as_ref().and_then(|d| crate::assets_panel::thumbnail(ui.ctx(), d, p.current, 38.0)).map(|tex| (p.current, source_key, tex));
     }
-    let doc = p.doc.as_ref()?;
+    let Some(doc) = p.doc.as_ref() else { return };
     let name = doc.node(p.current).map(|n| n.name.clone()).unwrap_or_default();
     let flows = match doc.page_of(p.start).and_then(|pg| doc.node(pg)).map(|n| &n.kind) {
         Some(NodeKind::Page { flows, .. }) => flows.clone(),
         _ => vec![],
     };
-    let settings = page_settings(doc, p.current);
-    let device = settings.device();
-    let mut action = None;
-    // Right: the buttons, right to left (English labels key their ids; shown translated).
-    let buttons: &[(BarAction, &str, Icon)] = if chrome.pane {
-        &[
-            (BarAction::Close, tr_noop("Close preview"), Icon::Close),
-            (BarAction::Present, tr_noop("Present"), Icon::Play),
-            (BarAction::Restart, tr_noop("Restart"), Icon::Reset),
-        ]
-    } else {
-        &[
-            (BarAction::Close, tr_noop("Close"), Icon::Close),
-            (BarAction::Restart, tr_noop("Restart"), Icon::Reset),
-            (BarAction::Options, tr_noop("Options"), Icon::Dots),
-            (BarAction::Comments, tr_noop("Comments"), Icon::Comment),
-            (BarAction::Inspect, tr_noop("Inspect"), Icon::Code),
-        ]
-    };
-    let mut x = bar.max.x - if chrome.pane { 6.0 } else { 8.0 };
-    for (act, label, icon) in buttons {
-        let shown = tr(label);
-        let w = if chrome.pane { 24.0 } else { ui.painter().layout_no_wrap(shown.to_string(), regular(11.5), text).size().x + 16.0 };
-        let br = Rect::from_min_size(pos2(x - w, bar.center().y - 12.0), vec2(w, 24.0));
-        x = br.min.x - if chrome.pane { 2.0 } else { 4.0 };
-        let mut resp = ui.interact(br, ui.id().with(("pbar", *label)), Sense::click());
-        if chrome.pane {
-            resp = resp.tip(shown);
-        }
-        let on = (*act == BarAction::Comments && p.view.comments) || (*act == BarAction::Inspect && p.view.inspect);
-        if on {
-            ui.painter().rect_filled(br, CornerRadius::same(5), ACCENT);
-        } else if resp.hovered() {
-            ui.painter().rect_filled(br, CornerRadius::same(5), hover);
-        }
-        if *act == BarAction::Comments {
-            resp = resp.tip(tr("Show comments (Shift+C)"));
-        }
-        if *act == BarAction::Inspect {
-            resp = resp.tip(tr("Inspect the layer under the pointer: size, colours, typography"));
-        }
-        if chrome.pane {
-            icons::paint(ui.painter(), br.shrink(5.0), *icon, t.icon);
-        } else {
-            ui.painter().text(br.center(), Align2::CENTER_CENTER, shown, regular(11.5), text);
-        }
-        if *act == BarAction::Options {
-            let menu = crate::right::menu_popup(&resp).width(220.0).show(|ui| options_menu(p, ui, device, settings.responsive, now));
-            action = action.or(menu.and_then(|m| m.inner));
-        } else if resp.clicked() {
-            action = Some(*act);
-        }
-    }
-    // Left: the flow picker and the frame's name, clipped before the buttons.
-    let left = ui.painter().with_clip_rect(Rect::from_min_max(bar.min, pos2(x, bar.max.y)));
-    let mut lx = bar.min.x + if chrome.pane { 8.0 } else { 12.0 };
-    if !chrome.pane {
-        let thumb = Rect::from_center_size(pos2(lx + 15.0, bar.center().y), vec2(28.0, 28.0));
-        left.rect_filled(thumb, CornerRadius::same(4), t.field);
+    let left = ui.painter().with_clip_rect(clip);
+    if thumb {
+        let tr_ = Rect::from_center_size(pos2(lx + 15.0, cy), vec2(30.0, 30.0));
+        left.rect_filled(tr_, CornerRadius::same(6), t.field);
         if let Some((_, _, tex)) = &p.bar_thumb {
             let size = tex.size_vec2();
             if size.x > 0.0 && size.y > 0.0 {
                 let scaled = size * (26.0 / size.x.max(size.y));
-                let dst = Rect::from_center_size(thumb.center(), scaled);
+                let dst = Rect::from_center_size(tr_.center(), scaled);
                 left.image(tex.id(), dst, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             }
         }
-        lx += 38.0;
+        lx += 40.0;
     }
     // The flow playing: its name on the picker, its description on hover; the menu lists each
     // flow with its description.
@@ -2267,13 +2258,13 @@ fn top_bar(p: &mut Presenter, ui: &mut Ui, bar: Rect, now: f64, chrome: Chrome) 
     if !flows.is_empty() {
         let label = playing.map_or(tr("Flows"), |f| f.name.as_str()).to_owned();
         let tip = playing.map(|f| f.description.trim()).filter(|d| !d.is_empty()).unwrap_or(tr("Flows")).to_string();
-        let galley = left.layout_no_wrap(label, semibold(11.5), text);
-        let fr = Rect::from_min_size(pos2(lx, bar.center().y - 12.0), vec2(galley.size().x + 30.0, 24.0));
+        let galley = left.layout_no_wrap(label, semibold(12.0), t.text);
+        let fr = Rect::from_min_size(pos2(lx, cy - 14.0), vec2(galley.size().x + 32.0, 28.0));
         let resp = ui.interact(fr.intersect(left.clip_rect()), ui.id().with("pflows"), Sense::click()).tip(tip);
         if resp.hovered() {
-            left.rect_filled(fr, CornerRadius::same(5), hover);
+            left.rect_filled(fr, CornerRadius::same(6), t.hover);
         }
-        left.galley(pos2(fr.min.x + 8.0, fr.center().y - galley.size().y / 2.0), galley, text);
+        left.galley(pos2(fr.min.x + 8.0, fr.center().y - galley.size().y / 2.0), galley, t.text);
         paint_menu_chevron(&left, fr, t.icon_secondary);
         crate::right::menu_popup(&resp).width(240.0).show(|ui| {
             let t = Tokens::get(ui.ctx());
@@ -2291,11 +2282,91 @@ fn top_bar(p: &mut Presenter, ui: &mut Ui, bar: Rect, now: f64, chrome: Chrome) 
             }
         });
         lx = fr.max.x + 8.0;
-        left.text(pos2(lx, bar.center().y), Align2::LEFT_CENTER, "/", regular(11.5), dim);
+        left.text(pos2(lx, cy), Align2::LEFT_CENTER, "/", regular(12.0), t.text_tertiary);
         lx += 14.0;
     }
-    left.text(pos2(lx, bar.center().y), Align2::LEFT_CENTER, name, regular(11.5), text);
+    left.text(pos2(lx, cy), Align2::LEFT_CENTER, name, semibold(12.0), t.text);
+}
+
+/// The presentation's background (the page's prototype background).
+pub(crate) fn stage_color(ctx: &egui::Context, p: &Presenter) -> Color32 {
+    crate::theme::doc_c32(ctx, p.doc.as_ref().map(|d| page_settings(d, p.current)).unwrap_or_default().background)
+}
+
+/// The full-window presenter's controls in the window's top bar, within `room` (one island
+/// high): the frame and its flow in an island, and an island of buttons (Inspect and Comments
+/// toggles, Options, Restart, Close) at its right end.
+pub(crate) fn full_bar(p: &mut Presenter, ui: &mut Ui, room: Rect, now: f64) -> Option<BarAction> {
+    let t = Tokens::get(ui.ctx());
+    let doc = p.doc.as_ref()?;
+    let settings = page_settings(doc, p.current);
+    let device = settings.device();
+    let mut action = None;
+    let groups: [&[(BarAction, &str, Icon)]; 3] = [
+        &[(BarAction::Inspect, tr_noop("Inspect"), Icon::Code), (BarAction::Comments, tr_noop("Comments"), Icon::Comment)],
+        &[(BarAction::Options, tr_noop("Options"), Icon::Dots), (BarAction::Restart, tr_noop("Restart"), Icon::Reset)],
+        &[(BarAction::Close, tr_noop("Close"), Icon::Close)],
+    ];
+    let width = |label: &str| ui.painter().layout_no_wrap(tr(label).to_string(), semibold(11.5), t.text).size().x + 16.0 + 6.0 + 20.0;
+    let total: f32 = groups.iter().map(|g| g.iter().map(|(_, l, _)| width(l) + 2.0).sum::<f32>()).sum::<f32>() + 2.0 * 13.0 + 12.0;
+    let buttons = Rect::from_min_max(pos2((room.max.x - total).max(room.min.x), room.min.y), room.max);
+    island_rect(ui, buttons, &t);
+    let cy = buttons.center().y;
+    let mut x = buttons.min.x + 6.0;
+    for (gi, group) in groups.iter().enumerate() {
+        if gi > 0 {
+            ui.painter().line_segment([pos2(x + 6.0, cy - 10.0), pos2(x + 6.0, cy + 10.0)], Stroke::new(1.0, t.border));
+            x += 13.0;
+        }
+        for (act, label, icon) in group.iter() {
+            let w = width(label);
+            let br = Rect::from_min_size(pos2(x, cy - 16.0), vec2(w, 32.0));
+            x += w + 2.0;
+            let mut resp = ui.interact(br, ui.id().with(("pbar", *label)), Sense::click());
+            let on = (*act == BarAction::Comments && p.view.comments) || (*act == BarAction::Inspect && p.view.inspect);
+            if on {
+                ui.painter().rect_filled(br, CornerRadius::same(8), t.selected_row);
+            } else if resp.hovered() {
+                ui.painter().rect_filled(br, CornerRadius::same(8), t.hover);
+            }
+            let col = if on { t.accent_text } else { t.text };
+            icons::paint(
+                ui.painter(),
+                Rect::from_center_size(pos2(br.min.x + 18.0, cy), vec2(16.0, 16.0)),
+                *icon,
+                if on { t.accent_text } else { t.icon },
+            );
+            ui.painter().text(pos2(br.min.x + 32.0, cy), Align2::LEFT_CENTER, tr(label), semibold(11.5), col);
+            resp = match act {
+                BarAction::Comments => resp.tip(tr("Show comments (Shift+C)")),
+                BarAction::Inspect => resp.tip(tr("Inspect the layer under the pointer: size, colours, typography")),
+                _ => resp,
+            };
+            if *act == BarAction::Options {
+                let menu = crate::right::menu_popup(&resp).width(220.0).show(|ui| options_menu(p, ui, device, settings.responsive, now));
+                action = action.or(menu.and_then(|m| m.inner));
+            } else if resp.clicked() {
+                action = Some(*act);
+            }
+        }
+    }
+    // The frame and its flow, centred in the room left of the buttons.
+    let free = Rect::from_min_max(room.min, pos2(buttons.min.x - 12.0, room.max.y));
+    if free.width() > 160.0 {
+        let w = free.width().min(420.0);
+        let crumb = Rect::from_center_size(free.center(), vec2(w, room.height()));
+        island_rect(ui, crumb, &t);
+        crumbs(p, ui, crumb.shrink2(vec2(8.0, 0.0)), crumb.min.x + 8.0, crumb.center().y, true, now);
+    }
     action
+}
+
+/// A top-bar island's panel at `r` (it takes the presses over it).
+fn island_rect(ui: &Ui, r: Rect, t: &Tokens) {
+    ui.interact(r, ui.id().with(("present_island", r.min.x as i32)), Sense::click());
+    let radius = CornerRadius::same(crate::ISLAND_R);
+    ui.painter().rect_filled(r, radius, t.panel);
+    ui.painter().rect_stroke(r, radius, Stroke::new(1.0, t.border), StrokeKind::Inside);
 }
 
 /// The full-window presenter's options menu: how the prototype is sized (Z cycles them), whether
@@ -2809,8 +2880,8 @@ fn draw(p: &mut Presenter, painter: &egui::Painter, ctx: &egui::Context, l: &Lay
         let (root, place, clip) = l.active(p.current);
         let a = ((p.flash_until - now) / FLASH_SECS) as f32;
         for (_, r) in hotspots(&l.disp, root, &place, clip) {
-            painter.rect_filled(r, CornerRadius::same(4), ACCENT.gamma_multiply(0.25 * a));
-            painter.rect_stroke(r, CornerRadius::same(4), Stroke::new(1.5, ACCENT.gamma_multiply(a)), StrokeKind::Outside);
+            painter.rect_filled(r, CornerRadius::same(4), accent().gamma_multiply(0.25 * a));
+            painter.rect_stroke(r, CornerRadius::same(4), Stroke::new(1.5, accent().gamma_multiply(a)), StrokeKind::Outside);
         }
         ctx.request_repaint();
     }

@@ -113,6 +113,15 @@ pub fn record_recent(app: &mut FigApp, key: &str) {
 }
 
 pub fn invoke(app: &mut FigApp, id: &str) {
+    let docs = app.session.docs.len();
+    dispatch(app, id);
+    // A file the menu made or opened (New design file, Duplicate) is shown, not left behind Home.
+    if app.session.docs.len() > docs {
+        app.ui.home = false;
+    }
+}
+
+fn dispatch(app: &mut FigApp, id: &str) {
     match id {
         // Edit ▸ Delete (and the Delete binding) with an interaction open in the Prototype tab
         // removes that interaction, not the layer (#767).
@@ -610,7 +619,12 @@ fn submenu_at<R>(
     if !open {
         return None;
     }
-    let pos = pos2(r.max.x + gap, r.min.y - 8.0);
+    // Beside its row, moved up as far as it takes to end inside the window.
+    let screen = ui.ctx().content_rect();
+    let mut pos = pos2(r.max.x + gap, r.min.y - 8.0);
+    if let Some(last) = ui.ctx().memory(|m| m.area_rect(area)) {
+        pos.y = pos.y.min(screen.max.y - last.height() - MENU_EDGE).max(screen.min.y + MENU_EDGE);
+    }
     let child = At { root: at.root, path: key.to_string() };
     let shown =
         egui::Area::new(area).fixed_pos(pos).order(egui::Order::Foreground).constrain(constrain).show(ui.ctx(), |ui| menu_frame(ui, t, child, add));
@@ -621,33 +635,45 @@ fn submenu_at<R>(
 
 /// A thin line between groups of menu items.
 pub(crate) fn separator(ui: &mut Ui) {
-    ui.add_space(4.0);
+    let t = Tokens::get(ui.ctx());
+    ui.add_space(5.0);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, Color32::from_white_alpha(30)));
-    ui.add_space(4.0);
+    ui.painter().line_segment([pos2(r.min.x + 8.0, r.center().y), pos2(r.max.x - 8.0, r.center().y)], Stroke::new(1.0, t.menu_line()));
+    ui.add_space(5.0);
 }
 
 /// A menu panel drawing menu level `at`.
 fn menu_frame<R>(ui: &mut Ui, t: &Tokens, at: At, add: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::NONE
         .fill(t.menu)
-        .corner_radius(CornerRadius::same(13))
-        .inner_margin(egui::Margin::same(8))
-        .shadow(egui::Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(60) })
+        .stroke(Stroke::new(1.0, t.menu_line()))
+        .corner_radius(CornerRadius::same(9))
+        .inner_margin(egui::Margin::same(6))
+        .shadow(egui::Shadow { offset: [0, 10], blur: 28, spread: 0, color: t.shadow })
         .show(ui, |ui| {
-            // As wide as its widest row asked for (labels run longer in some languages).
-            let w = ui.data(|d| d.get_temp::<f32>(width_key(ui))).unwrap_or(0.0).max(MENU_W);
-            ui.set_width(w);
-            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-            let key = at_key(ui);
-            ui.data_mut(|d| d.insert_temp(key, at));
-            add(ui)
+            // A menu taller than the window scrolls.
+            let max_h = (ui.ctx().content_rect().height() - MENU_EDGE * 2.0 - 12.0).max(120.0);
+            egui::ScrollArea::vertical()
+                .max_height(max_h)
+                .min_scrolled_height(max_h)
+                .show(ui, |ui| {
+                    // As wide as its widest row asked for (labels run longer in some languages).
+                    let w = ui.data(|d| d.get_temp::<f32>(width_key(ui))).unwrap_or(0.0).max(MENU_W);
+                    ui.set_width(w);
+                    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                    let key = at_key(ui);
+                    ui.data_mut(|d| d.insert_temp(key, at));
+                    add(ui)
+                })
+                .inner
         })
         .inner
 }
 
 /// A menu's narrowest width.
 const MENU_W: f32 = 240.0;
+/// How close a menu comes to the window's edges.
+const MENU_EDGE: f32 = 8.0;
 
 /// Where a menu remembers the width its rows need (its frame's ui), per language.
 fn width_key(ui: &Ui) -> Id {
@@ -679,7 +705,7 @@ fn indented_item(ui: &mut Ui, label: &str, shortcut: &str, enabled: bool, checke
     a11y::own_focus(&resp);
     let hov = plain_row_hover(ui, &resp) && enabled;
     if hov {
-        ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_hover);
+        ui.painter().rect_filled(r, CornerRadius::same(6), t.menu_hover);
     }
     let col = if enabled { t.menu_text } else { t.menu_dim };
     if checked {
@@ -699,7 +725,7 @@ fn indented_item(ui: &mut Ui, label: &str, shortcut: &str, enabled: bool, checke
 
 fn paint_submenu_row(ui: &mut Ui, r: Rect, label: &str, highlight: bool, t: &Tokens) {
     if highlight {
-        ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_hover);
+        ui.painter().rect_filled(r, CornerRadius::same(6), t.menu_hover);
     }
     let galley = ui.painter().layout_no_wrap(label.to_string(), regular(12.0), t.menu_text);
     need_width(ui, 28.0 + galley.size().x + 28.0);
@@ -766,11 +792,11 @@ pub fn popups(app: &mut FigApp, ctx: &egui::Context) {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 menu_frame(ui, &t, At { root: main_menu_id(), path: String::new() }, |ui| {
-                    // Quick actions search row.
+                    // The Actions palette's search row.
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
                     plain_row_hover(ui, &resp);
                     a11y::menu_item(&resp, tr("Actions…"), crate::shortcuts::shortcut("app.actions").unwrap_or(""), None);
-                    ui.painter().rect_filled(r.shrink(2.0), CornerRadius::same(5), Color32::from_white_alpha(18));
+                    ui.painter().rect_filled(r.shrink(2.0), CornerRadius::same(6), t.menu_field());
                     icons::paint(
                         ui.painter(),
                         Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(14.0, 14.0)),
@@ -1012,11 +1038,11 @@ pub fn toggle_palette(ui: &mut crate::UiState) {
 fn palette(app: &mut FigApp, ctx: &egui::Context) {
     let Some(mut q) = app.ui.palette.clone() else { return };
     let t = Tokens::get(ctx);
-    // Dropped from the command bar (the top centre of the canvas without one), within the window.
-    // Fixed size: switching tabs never resizes the panel.
+    // At the top centre of the canvas, within the window. Fixed size: switching tabs never
+    // resizes the panel.
     let screen = ctx.content_rect();
     let bar_w = PALETTE_W.min(screen.width() - 16.0).max(240.0);
-    let centre = app.ui.command_rect.map_or(app.canvas.rect.center().x, |r| r.center().x);
+    let centre = app.canvas.rect.center().x;
     let left = (centre - bar_w / 2.0).clamp(screen.min.x + 8.0, (screen.max.x - 8.0 - bar_w).max(screen.min.x + 8.0));
     let top = pos2(left, app.canvas.rect.min.y + 8.0);
     let area = Rect::from_min_size(top, vec2(bar_w, PALETTE_H + 16.0));
@@ -1045,7 +1071,7 @@ fn palette(app: &mut FigApp, ctx: &egui::Context) {
     egui::Area::new(Id::new("palette")).fixed_pos(area.min).order(egui::Order::Foreground).show(ctx, |ui| {
         egui::Frame::NONE
             .fill(t.panel)
-            .corner_radius(CornerRadius::same(13))
+            .corner_radius(CornerRadius::same(10))
             .stroke(Stroke::new(1.0, t.border))
             .shadow(egui::Shadow { offset: [0, 8], blur: 32, spread: 0, color: t.shadow })
             .inner_margin(egui::Margin::same(8))

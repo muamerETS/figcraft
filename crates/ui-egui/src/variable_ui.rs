@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use egui::{Align2, Color32, CornerRadius, Id, Pos2, Rect, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align2, CornerRadius, Id, Pos2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use figcraft_doc::{Collection, Document, ModeId, NodeId, PublishedLibrary, Variable, VariableId, VariableType, VariableValue, Variables};
 use figcraft_engine::library;
 use serde_json::json;
@@ -151,21 +151,21 @@ pub fn mode_rows<'a>(doc: &'a Document, libs: &'a [Arc<PublishedLibrary>]) -> Ve
 /// the default modes; true when clicked.
 pub fn variable_row(ui: &mut Ui, vars: &Variables, v: &Variable, width: f32) -> bool {
     let t = Tokens::get(ui.ctx());
-    let (r, resp) = ui.allocate_exact_size(vec2(width, 26.0), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(vec2(width, 30.0), Sense::click());
     if resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_hover);
+        ui.painter().rect_filled(r, CornerRadius::same(6), t.menu_hover);
     }
     let value = vars.resolve(&v.id, &std::collections::BTreeMap::new());
-    let lead = Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(14.0, 14.0));
+    let lead = Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(18.0, 18.0));
     match &value {
         Some(VariableValue::Color(c)) => widgets::paint_swatch(ui.painter(), lead, &figcraft_color::Paint::solid(*c)),
         _ => icons::paint(ui.painter(), lead.shrink(1.0), Icon::Variable, t.menu_text),
     }
-    let name_r = Rect::from_min_max(pos2(r.min.x + 26.0, r.min.y), pos2(r.max.x - 6.0, r.max.y));
+    let name_r = Rect::from_min_max(pos2(r.min.x + 34.0, r.min.y), pos2(r.max.x - 8.0, r.max.y));
     if let Some(val) = value.filter(|v| !matches!(v, VariableValue::Color(_))) {
-        ui.painter().text(pos2(r.max.x - 6.0, r.center().y), Align2::RIGHT_CENTER, val.display(), regular(11.0), t.menu_dim);
+        ui.painter().text(pos2(r.max.x - 8.0, r.center().y), Align2::RIGHT_CENTER, val.display(), regular(11.5), t.menu_dim);
     }
-    ui.painter().with_clip_rect(name_r).text(name_r.left_center(), Align2::LEFT_CENTER, &v.name, regular(11.0), t.menu_text);
+    ui.painter().with_clip_rect(name_r).text(name_r.left_center(), Align2::LEFT_CENTER, &v.name, regular(12.0), t.menu_text);
     resp.clicked()
 }
 
@@ -176,7 +176,9 @@ pub fn group_caption(ui: &mut Ui, lib: Option<&PublishedLibrary>, coll: &Collect
         Some(l) => format!("{} · {}", l.manifest.name, coll.name),
         None => coll.name.clone(),
     };
-    ui.label(egui::RichText::new(text).font(regular(10.0)).color(t.menu_dim));
+    ui.add_space(2.0);
+    ui.label(egui::RichText::new(text).font(regular(10.5)).color(t.menu_dim));
+    ui.add_space(2.0);
 }
 
 /// Open the picker for `field` of `ids` at `at`.
@@ -354,7 +356,7 @@ pub fn variable_button(ui: &mut Ui, rect: Rect, id: Id) -> bool {
 /// of their own (text content, visibility): `width` wide, at most the row. Nothing when unbound.
 pub fn bound_row(app: &mut FigApp, ui: &mut Ui, ids: &[NodeId], field: &str, kind: VariableType, lead: Lead, width: f32) {
     let Some(name) = app.session.doc().ok().and_then(|d| bound_name(d, ids, field)) else { return };
-    crate::right::row(ui, 32.0, |ui| {
+    crate::right::row(ui, crate::widgets::FIELD_ROW, |ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(width.min(ui.available_width()), widgets::FIELD_H), Sense::hover());
         let ev = widgets::bound_field(ui, Id::new(("bound_row", field)), lead, rect, &name);
         handle(app, ui, ids, field, kind, ev);
@@ -400,58 +402,58 @@ pub fn picker(app: &mut FigApp, ctx: &egui::Context) {
     let mut chosen: Option<Pick> = None;
     let mut close = false;
     let area = egui::Area::new(Id::new("variable_picker_area")).order(egui::Order::Foreground).fixed_pos(p.at + vec2(0.0, 4.0)).show(ctx, |ui| {
-        egui::Frame::NONE.fill(t.menu).corner_radius(CornerRadius::same(10)).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
-            ui.set_width(240.0);
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(tr("Variables")).font(semibold(11.0)).color(t.menu_text));
-            });
-            ui.add_space(4.0);
-            let r = ui.add(egui::TextEdit::singleline(&mut query).hint_text(tr("Search")).font(regular(11.0)).desired_width(224.0));
-            crate::widgets::select_all_on_focus(ui, &r, &query);
-            if !r.has_focus() && !crate::a11y::field_focused(ui.ctx()) {
-                r.request_focus();
-            }
-            ui.add_space(4.0);
-            egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                for (lib, c, vars) in &groups {
-                    group_caption(ui, *lib, c);
-                    let all = lib.map_or(&doc.variables, |l| &l.doc.variables);
-                    for v in vars {
-                        if variable_row(ui, all, v, 224.0) {
-                            chosen = Some(Pick { library: lib.map(|l| l.manifest.id.clone()), id: v.id.clone() });
+        egui::Frame::NONE
+            .fill(t.menu)
+            .corner_radius(CornerRadius::same(10))
+            .stroke(Stroke::new(1.0, t.menu_line()))
+            .inner_margin(egui::Margin::same(10))
+            .shadow(egui::Shadow { offset: [0, 10], blur: 28, spread: 0, color: t.shadow })
+            .show(ui, |ui| {
+                ui.set_width(240.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(tr("Variables")).font(semibold(11.0)).color(t.menu_text));
+                });
+                ui.add_space(4.0);
+                let r = crate::widgets::text_input(ui, Id::new("variable_picker_search"), &mut query, 240.0, tr("Search"));
+                crate::widgets::select_all_on_focus(ui, &r, &query);
+                if !r.has_focus() && !crate::a11y::field_focused(ui.ctx()) {
+                    r.request_focus();
+                }
+                ui.add_space(4.0);
+                egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                    for (lib, c, vars) in &groups {
+                        group_caption(ui, *lib, c);
+                        let all = lib.map_or(&doc.variables, |l| &l.doc.variables);
+                        for v in vars {
+                            if variable_row(ui, all, v, 224.0) {
+                                chosen = Some(Pick { library: lib.map(|l| l.manifest.id.clone()), id: v.id.clone() });
+                            }
                         }
                     }
+                });
+                if groups.is_empty() {
+                    // Whole sentences per type: languages place the type differently.
+                    let (fit, none) = match p.kind {
+                        Some(VariableType::Color) => {
+                            (tr("No colour variables fit here."), tr("No colour variables yet. Create them in Local variables."))
+                        }
+                        Some(VariableType::Number) => {
+                            (tr("No number variables fit here."), tr("No number variables yet. Create them in Local variables."))
+                        }
+                        Some(VariableType::String) => {
+                            (tr("No string variables fit here."), tr("No string variables yet. Create them in Local variables."))
+                        }
+                        Some(VariableType::Boolean) => {
+                            (tr("No boolean variables fit here."), tr("No boolean variables yet. Create them in Local variables."))
+                        }
+                        None => (tr("No variables fit here."), tr("No variables yet. Create them in Local variables.")),
+                    };
+                    let msg = if groups_any_kind(&doc, &libs, p.kind) { fit } else { none };
+                    ui.label(egui::RichText::new(msg).font(regular(11.0)).color(t.menu_dim));
                 }
             });
-            if groups.is_empty() {
-                // Whole sentences per type: languages place the type differently.
-                let (fit, none) = match p.kind {
-                    Some(VariableType::Color) => {
-                        (tr("No colour variables fit here."), tr("No colour variables yet. Create them in Local variables."))
-                    }
-                    Some(VariableType::Number) => {
-                        (tr("No number variables fit here."), tr("No number variables yet. Create them in Local variables."))
-                    }
-                    Some(VariableType::String) => {
-                        (tr("No string variables fit here."), tr("No string variables yet. Create them in Local variables."))
-                    }
-                    Some(VariableType::Boolean) => {
-                        (tr("No boolean variables fit here."), tr("No boolean variables yet. Create them in Local variables."))
-                    }
-                    None => (tr("No variables fit here."), tr("No variables yet. Create them in Local variables.")),
-                };
-                let msg = if groups_any_kind(&doc, &libs, p.kind) { fit } else { none };
-                ui.label(egui::RichText::new(msg).font(regular(11.0)).color(t.menu_dim));
-            }
-        });
     });
     let rect = area.response.rect;
-    ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("variable_picker_border"))).rect_stroke(
-        rect,
-        CornerRadius::same(10),
-        Stroke::new(1.0, Color32::from_black_alpha(40)),
-        egui::StrokeKind::Inside,
-    );
     let clicked_outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|pos| !rect.contains(pos)));
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || clicked_outside {
         close = true;

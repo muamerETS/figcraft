@@ -79,43 +79,6 @@ pub struct Options {
     /// detail, see [`lod`]. Off for everything that must be exact (exports, thumbnails); no
     /// effect in outline mode.
     pub lod: bool,
-    /// A faint grid on the background, behind the layers: lines every this many page units (the
-    /// canvas's backdrop; never in exports). Only drawn over a background.
-    pub grid: Option<f64>,
-}
-
-/// The most grid lines drawn across or down a render.
-const GRID_MAX_LINES: f64 = 2048.0;
-
-/// Lines every `step` page units across `pix`, a shade off the background `bg`.
-fn backdrop_grid(pix: &mut Pixmap, view: &View, step: f64, bg: Color) {
-    let px = step * view.scale;
-    if !(px.is_finite() && px >= 4.0 && view.origin.0.is_finite() && view.origin.1.is_finite()) {
-        return;
-    }
-    let (w, h) = (f64::from(pix.width()), f64::from(pix.height()));
-    if w / px > GRID_MAX_LINES || h / px > GRID_MAX_LINES {
-        return;
-    }
-    let shade = if bg.is_dark() { bg.lerp(Color::WHITE, 0.06) } else { bg.lerp(Color::BLACK, 0.06) };
-    let mut paint = tiny_skia::Paint::default();
-    paint.set_color(paint::ts_color(shade));
-    paint.anti_alias = false;
-    let line = |at: f64, origin: f64| (at * step - origin) * view.scale;
-    let mut k = (view.origin.0 / step).ceil();
-    while line(k, view.origin.0) < w {
-        if let Some(r) = tiny_skia::Rect::from_xywh(line(k, view.origin.0).floor() as f32, 0.0, 1.0, h as f32) {
-            pix.fill_rect(r, &paint, tiny_skia::Transform::identity(), None);
-        }
-        k += 1.0;
-    }
-    let mut k = (view.origin.1 / step).ceil();
-    while line(k, view.origin.1) < h {
-        if let Some(r) = tiny_skia::Rect::from_xywh(0.0, line(k, view.origin.1).floor() as f32, w as f32, 1.0) {
-            pix.fill_rect(r, &paint, tiny_skia::Transform::identity(), None);
-        }
-        k += 1.0;
-    }
 }
 
 fn new_pixmap(w: u32, h: u32) -> Option<Pixmap> {
@@ -205,9 +168,6 @@ pub fn render_view_single(doc: &Document, page: NodeId, view: &View, opts: &Opti
     });
     if let Some(bg) = bg {
         pix.fill(paint::ts_color(bg));
-        if let Some(step) = opts.grid.filter(|s| s.is_finite() && *s > 0.0) {
-            backdrop_grid(&mut pix, view, step, bg);
-        }
     }
     let lod = opts.lod && !opts.outline_mode && view.scale <= lod::MAX_SCALE;
     let bounds = draw::Bounds::default();

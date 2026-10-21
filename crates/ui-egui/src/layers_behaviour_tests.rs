@@ -209,6 +209,7 @@ fn pages_drag_to_reorder_and_dividers_open_nothing() {
     let p3 = id(s.execute("page.add", &json!({})).unwrap());
     s.execute("page.select", &json!({"id": p1})).unwrap();
     let mut u = Ui::new(s);
+    u.app.ui.pages_open = true;
     let (r1, r3) = (page_row(&mut u, p1, p2), page_row(&mut u, p3, p2));
     u.drag_to(r3, r1 - egui::vec2(0.0, 10.0));
     u.button(r1 - egui::vec2(0.0, 10.0), false);
@@ -252,6 +253,7 @@ fn a_long_pages_list_scrolls_and_leaves_room_for_the_layers() {
     s.execute("page.select", &json!({"id": first})).unwrap();
     s.execute("select.none", &json!({})).unwrap();
     let mut u = Ui::new(s);
+    u.app.ui.pages_open = true;
     // The layers list stays on screen under 60 pages.
     let layer = u.row_at(rect);
     // The wheel over the pages list scrolls it to its last page.
@@ -286,6 +288,7 @@ fn a_page_dropped_below_the_pages_list_stays_where_it_was() {
     s.execute("page.select", &json!({"id": first})).unwrap();
     s.execute("select.none", &json!({})).unwrap();
     let mut u = Ui::new(s);
+    u.app.ui.pages_open = true;
     let (row, layer) = (page_row(&mut u, second, first), u.row_at(rect));
     // Released over the layers, where pages scrolled out of view would be: no page row is there.
     u.drag_to(row, layer);
@@ -315,6 +318,7 @@ fn double_clicking_a_page_renames_it_with_the_focus_in_the_screen_reader_tree() 
     let p1 = s.page().unwrap();
     let p2 = id(s.execute("page.add", &json!({})).unwrap());
     let mut u = Ui::new(s);
+    u.app.ui.pages_open = true;
     let (r1, r2) = (page_row(&mut u, p1, p2), page_row(&mut u, p2, p1));
     u.ctx.enable_accesskit();
     // Another page: the first click opens it, the second renames it.
@@ -356,6 +360,7 @@ fn the_line_between_pages_and_layers_drags_to_size_the_pages_list() {
     s.execute("page.select", &json!({"id": first})).unwrap();
     s.execute("select.none", &json!({})).unwrap();
     let mut u = Ui::new(s);
+    u.app.ui.pages_open = true;
     let before = u.row_at(rect).y;
     let edge = pages_edge_at(&mut u, before);
     // A drag down by 150 px makes the pages list taller and moves the layers down with it.
@@ -405,6 +410,7 @@ fn dragging_up_the_line_under_a_short_pages_list_shrinks_it_at_once() {
     s.execute("page.select", &json!({"id": first})).unwrap();
     s.execute("select.none", &json!({})).unwrap();
     let mut u = Ui::new(s);
+    u.app.ui.pages_open = true;
     let before = u.row_at(rect).y;
     let edge = pages_edge_at(&mut u, before);
     let at = |dy: f32| Pos2::new(150.0, edge + dy);
